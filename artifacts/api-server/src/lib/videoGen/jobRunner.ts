@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { validateGuidedFootageReuse } from "./guidedFootageReuse";
+import { applyGuidedFinishing, planGuidedFinishing } from "./guidedAudioMix";
 import { getUsage, recordUsage } from "../usage";
 import {
   usageAccountingParams,
@@ -8951,6 +8952,35 @@ async function executeVideoJob(
       await verifyGuidedProviderSpeech(job, buffer);
     }
 
+    // Story uploads (footage inserts, music, voiceover, sound effects) are
+    // mixed locally after every speech/lip-sync gate, so QA keeps judging the
+    // provider's own audio. A final checkpoint already contains them.
+    let guidedUploadsMixed = false;
+    if (!savedFinal && job.options?.guidedStory?.references?.items.length) {
+      const plan = planGuidedFinishing(
+        job.options.guidedStory,
+        clipDurationSec,
+        job.options.renderedTimeline,
+      );
+      if (plan) {
+        onStage("Adding your uploaded footage and audio");
+        buffer = await applyGuidedFinishing({
+          buffer,
+          plan,
+          load: async (path) =>
+            (await loadTenantObject(path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Story upload")).buffer,
+        });
+        clipDurationSec = (
+          await verifyRenderedVideo(buffer, {
+            ...qa,
+            expectedDurationSec: await actualClipDuration(buffer),
+            label: "video with your uploads",
+          })
+        ).durationSec;
+        guidedUploadsMixed = true;
+      }
+    }
+
     // Speech QA and billable provider durations refer to the original render.
     // The outro is local finishing, after every speech/lip-sync gate and before
     // watermark, upload, and poster extraction. A final checkpoint is already
@@ -8979,7 +9009,7 @@ async function executeVideoJob(
     onStage("Saving to your library");
     let videoPath = savedFinal
       ? savedRender!.path
-      : frozenBrandOutro(job.options)?.enabled
+      : frozenBrandOutro(job.options)?.enabled || guidedUploadsMixed
         ? null
         : (completedStudioLipSyncOutputPath ?? savedRender?.path ?? null);
     if (!videoPath) {

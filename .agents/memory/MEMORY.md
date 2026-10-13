@@ -98,7 +98,7 @@
 - [sign_up vs consent race](consent-ingest-signup-race.md) — ingest 200s with accepted:0 when consent drops a batch; dedupe markers must check accepted>0 and retry on consent change.
 - [Merge-mangled test files](merge-mangled-test-files.md) — parallel task merges duplicate it-blocks into wrong describes; repair by splicing whole describes from the pre-merge revision.
 - [Animated AI b-roll](animated-broll.md) — topic-video "ai_video" mode: b-roll stills → image-to-video; motion suffix governed by Prompt Kit `video_motion`, fail-open, mock it in tests.
-- [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
+- [Validation resource contention](validation-runner-sigterm.md) — parallel checks can exhaust run budgets or delay Preview startup; separate contention from genuine code or port errors.
 - [Finite AI quota reservations](finite-ai-quota-reservations.md) — hold quota durably before provider calls; lease live holds and never recreate reclaimed quota at settlement.
 - [Localized video dubbing](localized-video-dubbing.md) — one job per locale; fit exact final cues, and preserve source voice via a temporary clone rather than provider-owned translation.
 - [Live text model compatibility](live-text-model-compatibility.md) — reject batch-only variants for synchronous generation; legacy batch-only selections fail over to builtin.

@@ -17,4 +17,13 @@ export const GuidedStorySetupInputGenre = {
   thriller_mystery: 'thriller_mystery',
   fantasy: 'fantasy',
   science_fiction: 'science_fiction',
+  slice_of_life: 'slice_of_life',
+  problem_solution: 'problem_solution',
+  customer_story: 'customer_story',
+  heartwarming: 'heartwarming',
+  inspirational: 'inspirational',
+  explainer: 'explainer',
+  mythological_period: 'mythological_period',
+  satire_parody: 'satire_parody',
+  custom: 'custom',
 } as const;

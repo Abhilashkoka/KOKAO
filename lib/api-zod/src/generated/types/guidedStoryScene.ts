@@ -21,5 +21,10 @@ export interface GuidedStoryScene {
      * @maxItems 2
      */
   productIds?: string[];
+  /**
+     * Story upload ids (setup.references.items[].id) used in this scene.
+     * @maxItems 3
+     */
+  referenceIds?: string[];
   lines: GuidedStoryLine[];
 }

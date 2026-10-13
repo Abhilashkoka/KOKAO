@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryAudioChoices } from './guidedStoryAudioChoices';
 import type { GuidedStoryScript } from './guidedStoryScript';
 import type { GuidedStorySetupInput } from './guidedStorySetupInput';
 import type { GuidedStoryVisualChoicesInput } from './guidedStoryVisualChoicesInput';
@@ -15,4 +16,6 @@ export interface GuidedStoryDraftUpdate {
   setup?: GuidedStorySetupInput;
   script?: GuidedStoryScript;
   visualChoices?: GuidedStoryVisualChoicesInput;
+  /** Music / voiceover / sound-effect placement. Never invalidates cast or backdrop approvals; null clears it. */
+  audioChoices?: GuidedStoryAudioChoices | null;
 }

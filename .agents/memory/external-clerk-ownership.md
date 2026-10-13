@@ -25,3 +25,9 @@ Clerk sign-in screens, including Google's account chooser, should show the KOKAO
 **Why:** The owner explicitly requested KOKAO branding on the Clerk sign-in screens.
 
 **How to apply:** Keep KOKAO branding on the embedded sign-in/sign-up forms while preserving the external Clerk account and existing authentication transport. Branding only the embedded form does not meet the requirement: Google's account chooser needs the owner's KOKAO-branded Google OAuth client configured in Clerk, with Google branding verified and published separately.
+
+Fresh throwaway users in the external Development instance may require Clerk's `choose-organization` task even after ticket sign-in succeeds.
+
+**Why:** A development-only test identity completed ticket sign-in but could not enter Studio because the pending organization task kept redirecting it back to sign-in.
+
+**How to apply:** Treat ticket acceptance and protected-page access as separate checks. Satisfy the development account's required tasks through the existing supported flow before testing protected pages, or report that browser verification is blocked. Do not change production authentication or disable instance-wide requirements merely to force a test through.

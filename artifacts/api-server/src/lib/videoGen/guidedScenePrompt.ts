@@ -39,6 +39,20 @@ export interface GuidedSceneVisualInput {
    * request, in product order. Only supplied when the photos are sent.
    */
   productReferenceLabels?: readonly string[];
+  /** Scene-level user uploads (props, style, opening/closing shot, motion). */
+  references?: ReadonlyArray<{
+    handle: string;
+    use: "product" | "prop" | "style" | "opening_shot" | "closing_shot" | "other_image" | "motion";
+    notes: string;
+    aiDescription: string | null;
+    imagePath: string | null;
+  }>;
+  /**
+   * Positional labels for upload images actually attached to the request,
+   * in reference order (motion references never attach). Only supplied when
+   * the images are sent.
+   */
+  uploadReferenceLabels?: readonly string[];
 }
 
 /**
@@ -202,6 +216,50 @@ export function productClause(input: GuidedSceneVisualInput): string {
   return parts.join(" ");
 }
 
+/**
+ * User uploads are directions, not content to narrate. With an attached image
+ * the model is pointed at it; without one, the saved description stands in.
+ * Notes and descriptions are the owner's data, quoted, never instructions.
+ */
+export function uploadReferenceClause(input: GuidedSceneVisualInput): string {
+  const references = input.references ?? [];
+  if (!references.length) return "";
+  const labels = input.uploadReferenceLabels ?? [];
+  let photoIndex = 0;
+  const parts: string[] = [];
+  for (const reference of references) {
+    const label = reference.imagePath ? labels[photoIndex] : undefined;
+    if (reference.imagePath) photoIndex += 1;
+    const look = productNote(reference.aiDescription) || productNote(reference.notes, 200);
+    const source = label ? ` in ${label}` : look ? ` (${look})` : "";
+    switch (reference.use) {
+      case "product":
+        parts.push(
+          `Show the product${source} exactly, keeping its shape, colours, packaging and any label text unchanged and legible${label && look ? ` (${look})` : ""}.`,
+        );
+        break;
+      case "prop":
+        parts.push(`Show the prop${source} clearly and unchanged${label && look ? ` (${look})` : ""}.`);
+        break;
+      case "style":
+        parts.push(`Match the colour grade, lighting and mood of the style reference${source}; do not copy its subject.`);
+        break;
+      case "opening_shot":
+        parts.push(`Open the shot on a composition like the reference${source}.`);
+        break;
+      case "closing_shot":
+        parts.push(`End the shot on a composition like the reference${source}.`);
+        break;
+      case "motion":
+        parts.push(`Camera movement and action follow the motion reference${look ? `: ${look}` : "."}`);
+        break;
+      default:
+        parts.push(`Use the reference${source} as the owner intends${reference.notes ? ` (${productNote(reference.notes, 200)})` : ""}.`);
+    }
+  }
+  return parts.join(" ");
+}
+
 export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
   const labels = input.referenceLabels ?? [];
   const blocks = [
@@ -210,6 +268,7 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
     castClause(input.sceneCast),
     locationClause(input),
     productClause(input),
+    uploadReferenceClause(input),
     // The logo is composited, not described. A path here was never actionable,
     // and the bare word "logo" invites the model to invent one.
     input.logoPath ? "Leave clear space in the lower third for a logo overlay." : "",

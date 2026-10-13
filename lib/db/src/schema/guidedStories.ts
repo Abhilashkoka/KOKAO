@@ -17,7 +17,124 @@ export type GuidedStoryGenre =
   | "romance"
   | "thriller_mystery"
   | "fantasy"
-  | "science_fiction";
+  | "science_fiction"
+  // Advertising formats. Any product or service fits any genre: the genre
+  // sets the storytelling tone, the products/references carry the pitch.
+  | "slice_of_life"
+  | "problem_solution"
+  | "customer_story"
+  | "heartwarming"
+  | "inspirational"
+  | "explainer"
+  | "mythological_period"
+  | "satire_parody"
+  /** Free-text tone in setup.customTone. */
+  | "custom";
+
+/**
+ * Whether profession advertising rules apply to this story. Asked per story
+ * because KOKAO serves every product and service business; only medical and
+ * CA videos get NMC / ICAI rules and the banned-words list.
+ */
+export type GuidedStoryVideoCategory = "general" | "medical" | "chartered_accountant";
+
+/** What an uploaded file is for. The media kind limits which uses apply. */
+export type GuidedStoryReferenceUse =
+  // images
+  | "character"
+  | "outfit"
+  | "product"
+  | "backdrop"
+  | "prop"
+  | "style"
+  | "logo"
+  | "opening_shot"
+  | "closing_shot"
+  | "other_image"
+  // videos
+  | "motion"
+  | "footage"
+  // audio
+  | "voice"
+  | "music"
+  | "voiceover"
+  | "sfx"
+  // documents
+  | "brief";
+
+export type GuidedStoryReferenceMedia = "image" | "video" | "audio" | "document";
+
+/**
+ * One user upload addressable as `@handle` in the topic, script and scene
+ * notes. Media facts (path, hash, type, size, duration, document text) are
+ * re-derived by the server whenever setup is saved; the AI description and
+ * transcript are the user's own data and are only ever passed to models as
+ * data, never as instructions.
+ */
+export interface GuidedStoryUploadReference {
+  /** Stable script-facing id, `r1`, `r2`, … */
+  id: string;
+  /** Lowercase handle without the leading @. */
+  handle: string;
+  /** Original file name, display only. */
+  label: string;
+  media: GuidedStoryReferenceMedia;
+  use: GuidedStoryReferenceUse;
+  path: string;
+  sha256: string;
+  mimeType: string;
+  byteLength: number;
+  durationSeconds: number | null;
+  /** The owner's own note about this file (data, not instructions). */
+  notes: string;
+  aiDescription: string | null;
+  /** Voiceover / voice transcript, when the user asked for one. */
+  transcript: string | null;
+  /** Extracted brief text (documents only), truncated. */
+  documentText: string | null;
+  /** voice: the @handle of the character reference, or a script role id. */
+  voiceFor: string | null;
+  /** music / footage / voice / voiceover: user confirmed rights or consent. */
+  rightsConfirmed: boolean;
+}
+
+export interface GuidedStoryReferenceLibrary {
+  version: 1;
+  items: GuidedStoryUploadReference[];
+}
+
+/** What the script must deliver, checked before approval. */
+export interface GuidedStoryRequirements {
+  version: 1;
+  /** Things that must be seen on screen: free text or `@handle`. */
+  mustShow: string[];
+  /** Phrases that must be spoken (or their English meaning). */
+  mustSay: string[];
+  callToAction: string | null;
+  /** Only honoured for medical / CA stories. */
+  bannedWords: string[];
+}
+
+/** Where an audio reference plays in the finished video. Local mixing only. */
+export interface GuidedStoryAudioPlacement {
+  referenceId: string;
+  /** Scene that anchors the start; null = absolute startSeconds. */
+  sceneId: string | null;
+  startSeconds: number;
+  /** null = until the audio or the video ends. */
+  endSeconds: number | null;
+  /** 0–1.5 linear gain. */
+  volume: number;
+  /** music only: dip under speech. */
+  duckUnderSpeech: boolean;
+  /** voiceover only: silence the generated audio while it plays. */
+  replaceGeneratedAudio: boolean;
+}
+
+export interface GuidedStoryAudioChoices {
+  version: 1;
+  items: GuidedStoryAudioPlacement[];
+}
 
 export type GuidedStoryPlatform =
   | "instagram_reels"
@@ -62,7 +179,13 @@ export interface GuidedStoryScript {
   title: string;
   logline: string;
   runtimeSeconds: number;
-  roles: Array<{ id: string; name: string; description: string }>;
+  roles: Array<{
+    id: string;
+    name: string;
+    description: string;
+    /** Story reference (character upload) that casts this role. */
+    referenceId?: string;
+  }>;
   scenes: Array<{
     id: string;
     startMs: number;
@@ -72,6 +195,8 @@ export interface GuidedStoryScript {
     roleIds: string[];
     /** Frozen draft product ids shown in this scene. Absent on legacy scripts. */
     productIds?: string[];
+    /** Story references (uploads) used in this scene. Absent on legacy scripts. */
+    referenceIds?: string[];
     lines: Array<{
       id: string;
       ownerRoleId: string | null;
@@ -391,6 +516,13 @@ export interface GuidedStoryDraftState {
     brandKitId: number | null;
     /** Brand Kit products & services this story promotes. Absent on legacy drafts. */
     products?: GuidedStoryProductChoices | null;
+    /** Free-text tone for the "custom" genre. */
+    customTone?: string | null;
+    /** Absent on legacy drafts, which follow the Brand Kit's profession. */
+    category?: GuidedStoryVideoCategory;
+    /** User uploads addressable as @handle. Absent on legacy drafts. */
+    references?: GuidedStoryReferenceLibrary | null;
+    requirements?: GuidedStoryRequirements | null;
   } | null;
   /**
    * New drafts freeze the platform image choice so review assets and retries
@@ -567,6 +699,9 @@ export interface GuidedStoryDraftState {
   }>;
 
   visualChoices?: GuidedStoryVisualChoices;
+  /** Music / voiceover / SFX placement. Local mixing; editing never
+   * invalidates cast or backdrop approvals. */
+  audioChoices?: GuidedStoryAudioChoices | null;
 
   storyboardJobId: number | null;
 

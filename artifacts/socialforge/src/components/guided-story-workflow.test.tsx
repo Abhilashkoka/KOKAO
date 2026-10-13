@@ -573,6 +573,7 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByTestId("select-guided-brand-kit"));
     await userEvent.click(screen.getByText("Studio"));
     await userEvent.type(screen.getByTestId("input-guided-topic"), "A story about sorting a desk");
+    await userEvent.click(screen.getByTestId("button-guided-category-general"));
     await userEvent.click(screen.getByTestId("button-guided-create-draft"));
     expect(state.created).toMatchObject({
       platform: "instagram_reels",
@@ -615,6 +616,7 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByTestId("select-guided-platform"));
     await userEvent.click(screen.getByText("instagram reels"));
     await userEvent.type(screen.getByTestId("input-guided-topic"), "A story without a brand kit");
+    await userEvent.click(screen.getByTestId("button-guided-category-general"));
 
     expect(screen.getByTestId("status-guided-empty-brand-kit").textContent).toContain(
       "You can still create the story",

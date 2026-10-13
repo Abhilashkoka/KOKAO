@@ -6057,6 +6057,27 @@ export const GuidedStorySetupInputGenre = {
   thriller_mystery: 'thriller_mystery',
   fantasy: 'fantasy',
   science_fiction: 'science_fiction',
+  slice_of_life: 'slice_of_life',
+  problem_solution: 'problem_solution',
+  customer_story: 'customer_story',
+  heartwarming: 'heartwarming',
+  inspirational: 'inspirational',
+  explainer: 'explainer',
+  mythological_period: 'mythological_period',
+  satire_parody: 'satire_parody',
+  custom: 'custom',
+} as const;
+
+/**
+ * Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.
+ */
+export type GuidedStorySetupInputCategory = typeof GuidedStorySetupInputCategory[keyof typeof GuidedStorySetupInputCategory];
+
+
+export const GuidedStorySetupInputCategory = {
+  general: 'general',
+  medical: 'medical',
+  chartered_accountant: 'chartered_accountant',
 } as const;
 
 export type GuidedStorySetupInputPlatform = typeof GuidedStorySetupInputPlatform[keyof typeof GuidedStorySetupInputPlatform];
@@ -6069,6 +6090,99 @@ export const GuidedStorySetupInputPlatform = {
   instagram_feed: 'instagram_feed',
   youtube: 'youtube',
 } as const;
+
+export interface GuidedStoryRequirementsInput {
+  /**
+     * @maxItems 8
+     * @items.maxLength 120
+     */
+  mustShow?: string[];
+  /**
+     * @maxItems 6
+     * @items.maxLength 160
+     */
+  mustSay?: string[];
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  callToAction?: string | null;
+  /**
+     * Only kept for medical or CA videos.
+     * @maxItems 40
+     * @items.maxLength 60
+     */
+  bannedWords?: string[];
+}
+
+export type GuidedStoryReferenceUse = typeof GuidedStoryReferenceUse[keyof typeof GuidedStoryReferenceUse];
+
+
+export const GuidedStoryReferenceUse = {
+  character: 'character',
+  outfit: 'outfit',
+  product: 'product',
+  backdrop: 'backdrop',
+  prop: 'prop',
+  style: 'style',
+  logo: 'logo',
+  opening_shot: 'opening_shot',
+  closing_shot: 'closing_shot',
+  other_image: 'other_image',
+  motion: 'motion',
+  footage: 'footage',
+  voice: 'voice',
+  music: 'music',
+  voiceover: 'voiceover',
+  sfx: 'sfx',
+  brief: 'brief',
+} as const;
+
+export interface GuidedStoryUploadInput {
+  /**
+     * Canonical tenant-owned upload path.
+     * @minLength 1
+     * @maxLength 512
+     */
+  path: string;
+  /**
+     * @minLength 2
+     * @maxLength 40
+     */
+  handle: string;
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  label?: string | null;
+  use: GuidedStoryReferenceUse;
+  /**
+     * @maxLength 400
+     * @nullable
+     */
+  notes?: string | null;
+  /**
+     * @maxLength 900
+     * @nullable
+     */
+  aiDescription?: string | null;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  transcript?: string | null;
+  /**
+     * For a voice upload, the @handle of the character upload (or a script role id) it voices.
+     * @maxLength 64
+     * @nullable
+     */
+  voiceFor?: string | null;
+  /**
+     * Required true for voice, voiceover, music and footage uploads.
+     * @nullable
+     */
+  rightsConfirmed?: boolean | null;
+}
 
 export type GuidedStoryProductSelectionInputPromotion = typeof GuidedStoryProductSelectionInputPromotion[keyof typeof GuidedStoryProductSelectionInputPromotion];
 
@@ -6092,6 +6206,20 @@ export interface GuidedStoryProductSelectionInput {
 
 export interface GuidedStorySetupInput {
   genre: GuidedStorySetupInputGenre;
+  /**
+     * Required for the custom genre (3-200 characters); ignored otherwise.
+     * @maxLength 200
+     * @nullable
+     */
+  customTone?: string | null;
+  /** Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it. */
+  category?: GuidedStorySetupInputCategory;
+  requirements?: GuidedStoryRequirementsInput | null;
+  /**
+     * Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.
+     * @maxItems 12
+     */
+  uploads?: GuidedStoryUploadInput[];
   platform: GuidedStorySetupInputPlatform;
   /**
      * @minimum 15
@@ -6117,6 +6245,159 @@ export interface GuidedStorySetupInput {
   /** @nullable */
   brandKitId?: number | null;
   productSelection?: GuidedStoryProductSelectionInput;
+}
+
+export type GuidedStoryRequirements = GuidedStoryRequirementsInput & {
+  version: 1;
+};
+
+export type GuidedStoryUploadReferenceMedia = typeof GuidedStoryUploadReferenceMedia[keyof typeof GuidedStoryUploadReferenceMedia];
+
+
+export const GuidedStoryUploadReferenceMedia = {
+  image: 'image',
+  video: 'video',
+  audio: 'audio',
+  document: 'document',
+} as const;
+
+export interface GuidedStoryUploadReference {
+  id: string;
+  handle: string;
+  label: string;
+  media: GuidedStoryUploadReferenceMedia;
+  use: GuidedStoryReferenceUse;
+  path: string;
+  sha256: string;
+  mimeType: string;
+  byteLength: number;
+  /** @nullable */
+  durationSeconds: number | null;
+  notes: string;
+  /** @nullable */
+  aiDescription: string | null;
+  /** @nullable */
+  transcript: string | null;
+  /** @nullable */
+  documentText: string | null;
+  /** @nullable */
+  voiceFor: string | null;
+  rightsConfirmed: boolean;
+}
+
+export interface GuidedStoryReferenceLibrary {
+  version: 1;
+  items: GuidedStoryUploadReference[];
+}
+
+export interface GuidedStoryReferenceInspectInput {
+  /**
+     * @minLength 1
+     * @maxLength 512
+     */
+  path: string;
+  /**
+     * @maxLength 120
+     * @nullable
+     */
+  label?: string | null;
+  /**
+     * @maxLength 400
+     * @nullable
+     */
+  notes?: string | null;
+  /** Run the metered AI description for images and videos. */
+  describe?: boolean;
+}
+
+export type GuidedStoryReferenceInspectionMedia = typeof GuidedStoryReferenceInspectionMedia[keyof typeof GuidedStoryReferenceInspectionMedia];
+
+
+export const GuidedStoryReferenceInspectionMedia = {
+  image: 'image',
+  video: 'video',
+  audio: 'audio',
+  document: 'document',
+} as const;
+
+export interface GuidedStoryReferenceInspection {
+  media: GuidedStoryReferenceInspectionMedia;
+  mimeType: string;
+  sha256: string;
+  byteLength: number;
+  /** @nullable */
+  durationSeconds: number | null;
+  /** @nullable */
+  documentExcerpt: string | null;
+  allowedUses: GuidedStoryReferenceUse[];
+  suggestedUse: GuidedStoryReferenceUse | null;
+  /** @nullable */
+  suggestedHandle: string | null;
+  /** @nullable */
+  aiDescription: string | null;
+  /** @nullable */
+  aiError: string | null;
+}
+
+export interface GuidedStoryReferenceTranscribeInput {
+  /**
+     * @minLength 1
+     * @maxLength 512
+     */
+  path: string;
+}
+
+export interface GuidedStoryReferenceTranscript {
+  transcript: string;
+}
+
+export interface GuidedStoryAudioPlacement {
+  referenceId: string;
+  /**
+     * Anchor scene; startSeconds/endSeconds are then offsets from its start.
+     * @nullable
+     */
+  sceneId: string | null;
+  /**
+     * @minimum 0
+     * @maximum 600
+     */
+  startSeconds: number;
+  /**
+     * @minimum 0
+     * @maximum 600
+     * @nullable
+     */
+  endSeconds: number | null;
+  /**
+     * @minimum 0
+     * @maximum 1.5
+     */
+  volume: number;
+  duckUnderSpeech: boolean;
+  replaceGeneratedAudio: boolean;
+}
+
+export interface GuidedStoryAudioChoices {
+  version: 1;
+  /** @maxItems 12 */
+  items: GuidedStoryAudioPlacement[];
+}
+
+export type GuidedStoryRequirementCheckKind = typeof GuidedStoryRequirementCheckKind[keyof typeof GuidedStoryRequirementCheckKind];
+
+
+export const GuidedStoryRequirementCheckKind = {
+  must_show: 'must_show',
+  must_say: 'must_say',
+  call_to_action: 'call_to_action',
+  reference: 'reference',
+} as const;
+
+export interface GuidedStoryRequirementCheck {
+  kind: GuidedStoryRequirementCheckKind;
+  text: string;
+  met: boolean;
 }
 
 export type GuidedStoryProductReferenceKind = typeof GuidedStoryProductReferenceKind[keyof typeof GuidedStoryProductReferenceKind];
@@ -6240,6 +6521,8 @@ export interface GuidedStoryRole {
   id: string;
   name: string;
   description: string;
+  /** Story upload id (setup.references.items[].id) of the character upload that casts this role. */
+  referenceId?: string;
 }
 
 export type GuidedStoryLineKind = typeof GuidedStoryLineKind[keyof typeof GuidedStoryLineKind];
@@ -6286,6 +6569,11 @@ export interface GuidedStoryScene {
      * @maxItems 2
      */
   productIds?: string[];
+  /**
+     * Story upload ids (setup.references.items[].id) used in this scene.
+     * @maxItems 3
+     */
+  referenceIds?: string[];
   lines: GuidedStoryLine[];
 }
 
@@ -6396,6 +6684,8 @@ export interface GuidedStoryDraftUpdate {
   setup?: GuidedStorySetupInput;
   script?: GuidedStoryScript;
   visualChoices?: GuidedStoryVisualChoicesInput;
+  /** Music / voiceover / sound-effect placement. Never invalidates cast or backdrop approvals; null clears it. */
+  audioChoices?: GuidedStoryAudioChoices | null;
 }
 
 export interface GuidedStoryBackdropInput {
@@ -8311,6 +8601,7 @@ export type GuidedStorySetup = GuidedStorySetupInput & ({
   height: number;
   safeArea: string;
   products?: GuidedStoryProductChoices | null;
+  references?: GuidedStoryReferenceLibrary | null;
 });
 
 export type GuidedStoryVisualChoices = GuidedStoryVisualChoicesInput & {
@@ -8478,6 +8769,9 @@ export interface GuidedStoryDraft {
   sceneInsertionGeneration?: GuidedStoryDraftSceneInsertionGeneration;
   referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
+  audioChoices?: GuidedStoryAudioChoices | null;
+  /** The script's requirement checklist (what must be shown, said and used). Never blocks approval. */
+  requirementChecks?: GuidedStoryRequirementCheck[];
   /** @nullable */
   storyboardJobId: number | null;
   /** Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts. */

@@ -46,6 +46,8 @@ import {
   GetVideoCapabilitiesResponse,
   RepairVideoJobBody,
   CreateGuidedStoryDraftBody,
+  InspectGuidedStoryReferenceBody,
+  TranscribeGuidedStoryReferenceBody,
   UpdateGuidedStoryDraftBody,
   GenerateGuidedStoryDraftScriptBody,
   RefreshGuidedStoryLineTranslationBody,
@@ -244,7 +246,7 @@ import {
 import { loadVideoBranding } from "../lib/videoGen/branding";
 import {
   checkTextsWithAiReview, complianceGateError, complianceScriptHint, describeFindings,
-  ensureStoryboardAiReview, guidedScriptComplianceTexts, mergeGuidance, resolveJobCompliance,
+  ensureStoryboardAiReview, guidedScriptComplianceTexts, mergeGuidance, resolveGuidedStoryCompliance, resolveJobCompliance,
   newBlockingFindings, storyboardComplianceReport, thawCompliance,
   ComplianceConfigError, ComplianceUnavailableError,
   type ComplianceReport, type ComplianceText,
@@ -253,6 +255,7 @@ import { resolveBrandOutroSnapshot, type BrandOutroSnapshot } from "../lib/video
 import { applyGuidedBrandEnding, confirmGuidedBrandEnding, loadGuidedBrandEnding, type GuidedBrandEndingApproval } from "../lib/videoGen/guidedBrandEnding";
 import { planGuidedFootageReuse } from "../lib/videoGen/guidedFootageReuse";
 import { loadActivePayload } from "../lib/brandKit/service";
+import { InsufficientCreditsError } from "../lib/creditAccounts";
 import {
   listElevenLabsPremadeVoices,
   VoiceCloneNotConfiguredError,
@@ -268,6 +271,28 @@ import {
   assertGuidedProductsUnchanged,
   resolveGuidedSetupProducts,
 } from "../lib/videoGen/guidedProducts";
+import {
+  GUIDED_REFERENCE_USES,
+  GuidedReferenceInputError,
+  assertGuidedReferencesUnchanged,
+  describeGuidedReference,
+  guidedRequirementChecks,
+  inspectGuidedReferenceUpload,
+  normalizeReferenceHandle,
+  sanitizeGuidedScriptReferences,
+  transcribeGuidedReference,
+  withGuidedRequirementWarnings,
+} from "../lib/videoGen/guidedReferences";
+import {
+  GuidedSetupExtrasError,
+  resolveGuidedSetupExtras,
+  type GuidedSetupExtrasInput,
+} from "../lib/videoGen/guidedSetupExtras";
+import {
+  GuidedAudioChoicesError,
+  pruneGuidedAudioChoices,
+  validateGuidedAudioChoices,
+} from "../lib/videoGen/guidedAudioMix";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { getTextGenClient, TextGenNotConfiguredError } from "../lib/textGen";
 import {
@@ -323,6 +348,7 @@ import {
 } from "../lib/videoGen/lipSyncModels";
 import {
   GUIDED_STORY_GENRES,
+  guidedGenreText,
   GUIDED_STORY_PLATFORMS,
   GUIDED_SCENE_INSERTION_CLAIM_TTL_MS,
   generateGuidedStoryScript,
@@ -2515,6 +2541,11 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
         ...operation
       }) => operation,
     ),
+    audioChoices: row.state.audioChoices ?? null,
+    requirementChecks:
+      row.state.setup && row.state.script
+        ? guidedRequirementChecks(row.state.script, row.state.setup)
+        : [],
     estimates: guidedStoryEstimates(row.state, {
       tenantId: row.tenantId,
       draftId: row.id,
@@ -2764,6 +2795,7 @@ function guidedSetup(
     brandKitId?: number | null;
     /** Resolved separately (async) by resolveGuidedSetupProducts. */
     productSelection?: unknown;
+    customTone?: string | null;
   },
 ): NonNullable<GuidedStoryDraftState["setup"]> | null {
   const platform = guidedStoryPlatform(input.platform);
@@ -2771,6 +2803,8 @@ function guidedSetup(
   const topic = input.topic.trim();
   if (!platform || !locale || !GUIDED_STORY_GENRES.includes(input.genre as never))
     return null;
+  const customTone = (input.customTone ?? "").replace(/\s+/g, " ").trim();
+  if (input.genre === "custom" && (customTone.length < 3 || customTone.length > 200)) return null;
   if (!platform.durations.includes(input.durationSeconds)) return null;
   if (topic.length < 3 || topic.length > 6000) return null;
   return {
@@ -2789,24 +2823,58 @@ function guidedSetup(
       ? { roleCount: input.roleCount }
       : {}),
     brandKitId: input.brandKitId ?? null,
+    ...(input.genre === "custom" ? { customTone } : {}),
   };
 }
+
+/** The category / requirements / uploads part of a parsed setup input. */
+function guidedSetupExtrasInput(input: {
+  category?: GuidedSetupExtrasInput["category"];
+  requirements?: GuidedSetupExtrasInput["requirements"];
+  uploads?: Array<{
+    path: string;
+    handle: string;
+    use: string;
+    label?: string | null;
+    notes?: string | null;
+    aiDescription?: string | null;
+    transcript?: string | null;
+    voiceFor?: string | null;
+    rightsConfirmed?: boolean | null;
+  }>;
+}): GuidedSetupExtrasInput {
+  return {
+    ...(input.category !== undefined ? { category: input.category } : {}),
+    ...(input.requirements !== undefined ? { requirements: input.requirements } : {}),
+    ...(input.uploads !== undefined ? { references: input.uploads } : {}),
+  };
+}
+
+const GUIDED_GENRE_ERROR =
+  "Genre is not supported. Choose one of the listed genres, or Custom with a tone of 3 to 200 characters.";
 
 function guidedStorySetupValidationError(
   input: unknown,
   issuePath?: PropertyKey[],
 ): string | null {
   const field = issuePath?.find((part) =>
-    ["genre", "platform", "durationSeconds", "locale", "topic", "roleCount", "brandKitId", "productSelection"]
+    ["genre", "platform", "durationSeconds", "locale", "topic", "roleCount", "brandKitId", "productSelection",
+      "customTone", "category", "requirements", "uploads"]
       .includes(String(part)),
   );
+  if (field === "customTone") return "Describe the custom tone in 3 to 200 characters.";
+  if (field === "category") return "Choose whether this is a general, medical or CA-related video.";
+  if (field === "requirements") {
+    return "Requirements allow up to 8 things to show, 6 phrases to say, one call to action and 40 banned words.";
+  }
+  if (field === "uploads") {
+    return "Each upload needs a file, an @name of 2–32 letters, numbers or underscores, and what it is for.";
+  }
   if (field === "productSelection") {
     return "Choose up to 4 Brand Kit products or services and a Subtle or Featured promotion level.";
   }
   if (field === "topic") return "Topic must be between 3 and 6000 characters.";
-  if (field === "genre") {
-    return "Genre is not supported. Choose Action / Adventure, Comedy, Drama, Romance, Thriller / Mystery, Fantasy, or Science Fiction.";
-  }
+  if (field === "genre") return GUIDED_GENRE_ERROR;
   if (field === "platform") {
     return "Platform is not supported. Choose Instagram Reels, TikTok, YouTube Shorts, Instagram Feed, or YouTube.";
   }
@@ -2830,9 +2898,14 @@ function guidedStorySetupValidationError(
   }
   if (
     typeof setup.genre !== "string" ||
-    !GUIDED_STORY_GENRES.includes(setup.genre as never)
+    !GUIDED_STORY_GENRES.includes(setup.genre as never) ||
+    (setup.genre === "custom" && (
+      typeof setup.customTone !== "string" ||
+      setup.customTone.trim().length < 3 ||
+      setup.customTone.trim().length > 200
+    ))
   ) {
-    return "Genre is not supported. Choose Action / Adventure, Comedy, Drama, Romance, Thriller / Mystery, Fantasy, or Science Fiction.";
+    return GUIDED_GENRE_ERROR;
   }
   if (
     typeof setup.platform !== "string" ||
@@ -2867,7 +2940,7 @@ function canonicalGuidedVisualObjectPath(path: string, tenantId: number): boolea
 function hasOnlyGuidedVisualFields(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const input = value as Record<string, unknown>;
-  if (Object.keys(input).some((key) => !["revision", "setup", "script", "visualChoices"].includes(key))) return false;
+  if (Object.keys(input).some((key) => !["revision", "setup", "script", "visualChoices", "audioChoices"].includes(key))) return false;
   if (!("visualChoices" in input)) return true;
   const choices = input.visualChoices;
   if (!choices || typeof choices !== "object" || Array.isArray(choices)) return false;
@@ -4715,6 +4788,89 @@ router.get("/ai/guided-story/voices", async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Inspect one uploaded story reference: server-derived media facts, plus (for
+ * images and videos, when asked) a metered AI description and a suggested use.
+ * Nothing is saved; the client sends the reference back inside the setup.
+ */
+router.post("/ai/guided-story/references/inspect", async (req: Request, res: Response) => {
+  const parsed = InspectGuidedStoryReferenceBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Choose an uploaded file to inspect." });
+    return;
+  }
+  let facts: Awaited<ReturnType<typeof inspectGuidedReferenceUpload>>;
+  try {
+    facts = await inspectGuidedReferenceUpload(parsed.data.path, req.tenantId);
+  } catch (error) {
+    if (error instanceof GuidedReferenceInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+  let aiDescription: string | null = null;
+  let suggestedUse: string | null = facts.media === "document" ? "brief" : null;
+  let aiError: string | null = null;
+  if (parsed.data.describe !== false && (facts.media === "image" || facts.media === "video")) {
+    try {
+      const described = await describeGuidedReference({
+        tenantId: req.tenantId,
+        facts,
+        label: parsed.data.label?.trim() || "upload",
+        notes: parsed.data.notes?.trim() ?? "",
+      });
+      aiDescription = described.description;
+      suggestedUse = described.suggestedUse;
+    } catch (error) {
+      req.log.warn({ err: error }, "Guided reference description failed");
+      aiError = error instanceof InsufficientCreditsError
+        ? "Not enough credits for the AI description. Your upload is fine; describe it in the notes."
+        : "AI description failed. Your upload is fine; describe it in the notes.";
+    }
+  }
+  res.json({
+    media: facts.media,
+    mimeType: facts.mimeType,
+    sha256: facts.sha256,
+    byteLength: facts.byteLength,
+    durationSeconds: facts.durationSeconds,
+    documentExcerpt: facts.documentText ? facts.documentText.slice(0, 400) : null,
+    allowedUses: GUIDED_REFERENCE_USES[facts.media],
+    suggestedUse,
+    suggestedHandle: normalizeReferenceHandle(
+      (parsed.data.label ?? "").replace(/\.[a-z0-9]{1,5}$/i, ""),
+    ),
+    aiDescription,
+    aiError,
+  });
+});
+
+/** Metered transcript of a voiceover or voice upload, for script timing. */
+router.post("/ai/guided-story/references/transcribe", async (req: Request, res: Response) => {
+  const parsed = TranscribeGuidedStoryReferenceBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Choose an uploaded audio file to transcribe." });
+    return;
+  }
+  try {
+    const facts = await inspectGuidedReferenceUpload(parsed.data.path, req.tenantId);
+    const transcript = await transcribeGuidedReference({ tenantId: req.tenantId, facts });
+    res.json({ transcript });
+  } catch (error) {
+    if (error instanceof GuidedReferenceInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof InsufficientCreditsError) {
+      res.status(402).json({ error: "Not enough credits to transcribe this audio." });
+      return;
+    }
+    req.log.warn({ err: error }, "Guided reference transcription failed");
+    res.status(502).json({ error: "Transcription failed. Type the words into the notes instead." });
+  }
+});
+
 router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
   const parsed = CreateGuidedStoryDraftBody.safeParse(req.body);
   const setup = parsed.success ? guidedSetup(parsed.data) : null;
@@ -4743,9 +4899,19 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
       previous: null,
     });
     if (products) setup.products = products;
+    await resolveGuidedSetupExtras({
+      tenantId: req.tenantId,
+      setup,
+      input: guidedSetupExtrasInput(parsed.data),
+      previous: null,
+    });
   } catch (error) {
-    if (error instanceof GuidedProductSelectionError) {
+    if (error instanceof GuidedProductSelectionError || error instanceof GuidedSetupExtrasError) {
       res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof ComplianceUnavailableError) {
+      res.status(503).json({ error: error.message, code: error.code });
       return;
     }
     throw error;
@@ -4871,7 +5037,11 @@ router.patch(
     }
     let setup = row.state.setup;
     if (parsed.data.setup) {
-      setup = guidedSetup(parsed.data.setup);
+      // Script edits resend the setup; keep the saved custom tone when omitted.
+      setup = guidedSetup({
+        ...parsed.data.setup,
+        customTone: parsed.data.setup.customTone ?? row.state.setup?.customTone ?? null,
+      });
       if (!setup) {
         res.status(400).json({
           error:
@@ -4895,9 +5065,19 @@ router.patch(
           previous: row.state.setup,
         });
         if (products) setup.products = products;
+        await resolveGuidedSetupExtras({
+          tenantId: req.tenantId,
+          setup,
+          input: guidedSetupExtrasInput(parsed.data.setup),
+          previous: row.state.setup,
+        });
       } catch (error) {
-        if (error instanceof GuidedProductSelectionError) {
+        if (error instanceof GuidedProductSelectionError || error instanceof GuidedSetupExtrasError) {
           res.status(400).json({ error: error.message });
+          return;
+        }
+        if (error instanceof ComplianceUnavailableError) {
+          res.status(503).json({ error: error.message, code: error.code });
           return;
         }
         throw error;
@@ -4933,6 +5113,31 @@ router.patch(
         sanitizeGuidedScriptProducts(script, setup.products),
         setup.products,
       );
+      script = withGuidedRequirementWarnings(
+        sanitizeGuidedScriptReferences(script, setup.references),
+        setup,
+      );
+    }
+    let audioChoices = row.state.audioChoices ?? null;
+    if (parsed.data.audioChoices !== undefined) {
+      try {
+        audioChoices = validateGuidedAudioChoices(parsed.data.audioChoices, {
+          references: setup?.references ?? null,
+          script,
+        });
+      } catch (error) {
+        if (error instanceof GuidedAudioChoicesError) {
+          res.status(400).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
+    } else if (audioChoices && (parsed.data.setup || parsed.data.script)) {
+      // Drop placements whose upload or scene no longer exists.
+      audioChoices = pruneGuidedAudioChoices(audioChoices, {
+        references: setup?.references ?? null,
+        script,
+      });
     }
     const validatedVisualChoices = parsed.data.visualChoices
       ? validateGuidedVisualChoices(parsed.data.visualChoices, script, req.tenantId)
@@ -4956,10 +5161,10 @@ router.patch(
     const nextState =
       parsed.data.setup || parsed.data.script
         ? invalidateGuidedStoryDownstream(
-            { ...row.state, setup, visualChoices },
+            { ...row.state, setup, visualChoices, audioChoices },
             script,
           )
-        : { ...row.state, visualChoices };
+        : { ...row.state, visualChoices, audioChoices };
     const saved = await saveGuidedState(row, parsed.data.revision, nextState, {
       preserveCurrentCastApprovals: !parsed.data.setup && !parsed.data.script,
     });
@@ -5478,7 +5683,7 @@ router.post(
       : null;
     let guidedCompliance: Awaited<ReturnType<typeof resolveJobCompliance>>;
     try {
-      guidedCompliance = await resolveJobCompliance(req.tenantId, setup.brandKitId ?? null);
+      guidedCompliance = await resolveGuidedStoryCompliance(req.tenantId, setup);
     } catch (error) {
       await saveGuidedState(claimed, claimed.revision, {
         ...claimed.state,
@@ -5526,6 +5731,9 @@ router.post(
               complianceScriptHint(thawCompliance(guidedCompliance)),
             ),
             products: setup.products ?? null,
+            customTone: setup.customTone ?? null,
+            references: setup.references ?? null,
+            requirements: setup.requirements ?? null,
             meterContext,
           });
         },
@@ -5550,6 +5758,7 @@ router.post(
             script: receipt,
             assets: claimed.state.billingReceipts?.assets ?? {},
           };
+          result.script = withGuidedRequirementWarnings(result.script, setup);
           const nextState = invalidateGuidedStoryDownstream(
             claimed.state,
             result.script,
@@ -5668,10 +5877,9 @@ router.post(
       return;
     }
     {
-      const scriptCompliance = await resolveJobCompliance(
-        req.tenantId,
-        row.state.setup?.brandKitId ?? null,
-      );
+      const scriptCompliance = row.state.setup
+        ? await resolveGuidedStoryCompliance(req.tenantId, row.state.setup)
+        : await resolveJobCompliance(req.tenantId, null);
       const report = await checkTextsWithAiReview({
         tenantId: req.tenantId,
         items: guidedScriptComplianceTexts(row.state.script),
@@ -6770,6 +6978,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
               tenantId: req.tenantId,
               role,
               genre: row.state.setup!.genre,
+              customTone: row.state.setup!.customTone ?? null,
               includeFinalConstraint: false,
             });
             const castPrompt = [
@@ -7145,7 +7354,7 @@ async function processGuidedStoryCast(req: Request, res: Response): Promise<void
           ? `${operation.customization.description}${operation.customization.ethnicity ? ` Ethnicity: ${operation.customization.ethnicity}.` : ""}`
           : `Wholly fictional character. ${role.description}`;
         const wardrobeDescription = operation.customization?.wardrobeDescription ??
-          `Original fictional wardrobe suited to ${row.state.setup!.genre.replaceAll("_", " ")}. ` +
+          `Original fictional wardrobe suited to ${guidedGenreText(row.state.setup!.genre, row.state.setup!.customTone)}. ` +
           `Preserve all wardrobe details specified by the approved role description: ${role.description}`;
         const generatedPortrait = await loadReferenceImage(referenceImagePath, req.tenantId);
         const sourceSha256 = createHash("sha256")
@@ -10724,6 +10933,11 @@ async function generateVideoHandler(
       res.status(409).json({ error: productError });
       return;
     }
+    const referenceError = await assertGuidedReferencesUnchanged(setup.references, req.tenantId);
+    if (referenceError) {
+      res.status(409).json({ error: referenceError });
+      return;
+    }
     body = {
       ...body,
       engine: "topic_to_video",
@@ -11800,7 +12014,7 @@ async function generateVideoHandler(
     suppliedPlan = {
       flow: "broll",
       raw: {
-        style: `${setup.genre.replaceAll("_", " ")}; ${setup.safeArea}`,
+        style: `${guidedGenreText(setup.genre, setup.customTone)}; ${setup.safeArea}`,
         prompts: guidedDraft.state.script.scenes.map((scene) => {
           const roleDetails = guidedDraft!.state.cast
             .filter((cast) =>
@@ -12333,6 +12547,12 @@ async function generateVideoHandler(
             ...(guidedDraft.state.setup.products?.items.length
               ? { products: guidedDraft.state.setup.products }
               : {}),
+            ...(guidedDraft.state.setup.references?.items.length
+              ? { references: guidedDraft.state.setup.references }
+              : {}),
+            ...(guidedDraft.state.audioChoices?.items.length
+              ? { audioChoices: guidedDraft.state.audioChoices }
+              : {}),
           }
         : undefined,
     hybridStory:
@@ -12609,9 +12829,13 @@ async function generateVideoHandler(
   // Resolved from the request's kit, else the tenant default kit, else the
   // tenant's Business/Industry — independent of the brandVideo kill switch.
   try {
-    options.compliance = await resolveJobCompliance(
-      req.tenantId, body.brandKitId ?? options.brandKitId ?? null,
-    );
+    options.compliance = guidedDraft?.state.setup
+      // A Guided Story is judged by its own answer to "is this a medical or
+      // CA video?" (and its banned words), on top of the brand's profession.
+      ? await resolveGuidedStoryCompliance(req.tenantId, guidedDraft.state.setup)
+      : await resolveJobCompliance(
+          req.tenantId, body.brandKitId ?? options.brandKitId ?? null,
+        );
   } catch (error) {
     if (error instanceof ComplianceUnavailableError) {
       res.status(503).json({ error: error.message, code: error.code });

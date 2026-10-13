@@ -70,20 +70,34 @@ import {
 } from "@/components/character-provenance";
 import { GuidedProductPicker, SceneProductToggles } from "@/components/brand-products";
 import {
+  BackdropUploadShortcuts,
+  EMPTY_REQUIREMENTS,
+  GUIDED_STORY_GENRE_OPTIONS,
+  GuidedAudioPlacementEditor,
+  GuidedRequirementChecklist,
+  GuidedRequirementsEditor,
+  GuidedStoryUploads,
+  GuidedVideoCategoryQuestion,
+  RoleUploadShortcuts,
+  SceneReferenceToggles,
+  TopicMentionHelper,
+  normalizeHandle,
+  requirementsFromDraft,
+  requirementsInput,
+  uploadDraftsFromDraft,
+  uploadInputsFromDrafts,
+  uploadsProblem,
+  type GuidedRequirementsValue,
+  type GuidedStoryCategory,
+  type GuidedUploadDraft,
+} from "@/components/guided-story-references";
+import {
   GuidedBrandEndingDialog,
   type GuidedBrandEndingSelection,
 } from "@/components/guided-brand-ending-dialog";
 
 
-const GENRES = [
-  ["action_adventure", "Action / Adventure", "High stakes, motion, and a daring goal."],
-  ["comedy", "Comedy", "A character-led setup with a satisfying turn."],
-  ["drama", "Drama", "Human choices, emotional stakes, and consequence."],
-  ["romance", "Romance", "Connection, vulnerability, and a hopeful beat."],
-  ["thriller_mystery", "Thriller / Mystery", "Clues, tension, and a reveal."],
-  ["fantasy", "Fantasy", "An original world with wonder and rules."],
-  ["science_fiction", "Science Fiction", "A future-facing idea grounded in people."],
-] as const;
+const GENRES = GUIDED_STORY_GENRE_OPTIONS;
 
 type Assignment = { characterId: number | null; outfitId: number | null; voiceId: string; voiceChoiceConfirmed?: boolean };
 const GUIDED_STORY_ELEVENLABS_MODEL = "eleven_v3";
@@ -313,6 +327,10 @@ export function GuidedStoryWorkflow({
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [productAssetIds, setProductAssetIds] = useState<number[]>([]);
   const [promotion, setPromotion] = useState<"subtle" | "featured">("featured");
+  const [customTone, setCustomTone] = useState("");
+  const [category, setCategory] = useState<GuidedStoryCategory | null>(null);
+  const [uploads, setUploads] = useState<GuidedUploadDraft[]>([]);
+  const [requirements, setRequirements] = useState<GuidedRequirementsValue>(EMPTY_REQUIREMENTS);
   const [editing, setEditing] = useState(false);
   const [scriptEditorOpen, setScriptEditorOpen] = useState(false);
   const scriptEditorRef = useRef<HTMLDivElement>(null);
@@ -592,6 +610,10 @@ export function GuidedStoryWorkflow({
     setBrandKitId(draft.setup.brandKitId ?? null);
     setProductAssetIds(draft.setup.products?.items.map((item) => item.assetId) ?? []);
     setPromotion(draft.setup.products?.promotion ?? "featured");
+    setCustomTone(draft.setup.customTone ?? "");
+    setCategory(draft.setup.category ?? null);
+    setUploads(uploadDraftsFromDraft(draft));
+    setRequirements(requirementsFromDraft(draft));
   }, [draft?.id, draft?.revision]);
   useEffect(() => {
     if (!draft?.script) return;
@@ -626,6 +648,10 @@ export function GuidedStoryWorkflow({
     setBrandKitId(null);
     setProductAssetIds([]);
     setPromotion("featured");
+    setCustomTone("");
+    setCategory(null);
+    setUploads([]);
+    setRequirements(EMPTY_REQUIREMENTS);
     setEditing(false);
     setScriptEditorOpen(false);
     setUserRoleId(null);
@@ -839,7 +865,18 @@ export function GuidedStoryWorkflow({
     setEditing(true);
   };
   const begin = () => {
-    if (!setupComplete || duration === null || !acquireMutation()) return;
+    if (!setupComplete || duration === null) return;
+    const extrasProblem =
+      category === null && !draft
+        ? "Answer whether this video is medical or CA-related."
+        : genre === "custom" && customTone.trim().length < 3
+          ? "Describe the custom tone in at least 3 characters."
+          : uploadsProblem(uploads);
+    if (extrasProblem) {
+      setSetupSaveError(extrasProblem);
+      return;
+    }
+    if (!acquireMutation()) return;
     setSetupSaveError(null);
     const setup = {
       genre,
@@ -849,6 +886,10 @@ export function GuidedStoryWorkflow({
       topic: topic.trim(),
       brandKitId,
       productSelection: { promotion, assetIds: brandKitId === null ? [] : productAssetIds },
+      customTone: genre === "custom" ? customTone.trim() : null,
+      category: category ?? undefined,
+      requirements: requirementsInput(requirements, category),
+      uploads: uploadInputsFromDrafts(uploads),
     };
     if (draft) {
       updateDraft.mutate(
@@ -1118,12 +1159,16 @@ export function GuidedStoryWorkflow({
           </div>
         )}
         {!draft || editing ? <>
+          <GuidedVideoCategoryQuestion value={category} onChange={setCategory} disabled={mutationLocked} />
           <div className="grid gap-2 md:grid-cols-2">{GENRES.map(([id, name, description]) => <Button key={id} type="button" variant={genre === id ? "default" : "outline"} className="h-auto justify-start whitespace-normal p-4 text-left" onClick={() => setGenre(id)} data-testid={`button-guided-genre-${id}`}><span><b>{name}</b><br /><small>{description}</small></span></Button>)}</div>
+          <p className="text-xs text-muted-foreground" data-testid="text-guided-genre-hint">Your product doesn't need to match a genre — the genre sets the tone; your products, uploads and topic carry the pitch.</p>
+          {genre === "custom" && <div className="space-y-1.5"><Label htmlFor="guided-custom-tone">Custom tone</Label><Input id="guided-custom-tone" maxLength={200} value={customTone} onChange={(event) => setCustomTone(event.target.value)} placeholder="e.g. Calm, premium, ASMR-style product close-ups" data-testid="input-guided-custom-tone" /></div>}
           <div className="grid gap-4 md:grid-cols-2">
             <div><Label>Publishing platform</Label><Select value={platformId} onValueChange={setPlatformId}><SelectTrigger data-testid="select-guided-platform"><SelectValue placeholder="Choose a platform" /></SelectTrigger><SelectContent>{(platforms.data ?? []).map((item) => <SelectItem key={item.id} value={item.id}>{item.id.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Brand Kit and voice library (optional)</Label><Select value={brandKitId?.toString() ?? ""} onValueChange={(value) => { const next = Number(value); if (next !== brandKitId) setProductAssetIds([]); setBrandKitId(next); }}><SelectTrigger data-testid="select-guided-brand-kit"><SelectValue placeholder="No Brand Kit" /></SelectTrigger><SelectContent>{brandKits.map((kit) => <SelectItem key={kit.id} value={String(kit.id)}>{kit.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
           <GuidedProductPicker brandKitId={brandKitId} selected={productAssetIds} onSelectedChange={setProductAssetIds} promotion={promotion} onPromotionChange={setPromotion} disabled={mutationLocked} />
+          <GuidedStoryUploads rows={uploads} onChange={setUploads} disabled={mutationLocked} hasBrandKit={brandKitId !== null} />
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
           {contract && <div ref={durationRef} className={runtimeGuidance ? "rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : undefined} data-testid="section-guided-duration"><Label>Duration</Label>{runtimeGuidance && <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-runtime">{runtimeGuidance}</p>}<div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => { setDuration(value); setRuntimeGuidance(null); }} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
           <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-story-decides-cast">
@@ -1179,7 +1224,18 @@ export function GuidedStoryWorkflow({
                 {topicError}
               </p>
             )}
+            <TopicMentionHelper
+              topic={topic}
+              handles={uploads.filter((row) => row.status === "ready").map((row) => normalizeHandle(row.handle)).filter((handle) => handle.length >= 2)}
+              onInsert={(handle) => setTopic((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}@${handle} `)}
+            />
           </div>
+          <GuidedRequirementsEditor
+            value={requirements}
+            onChange={setRequirements}
+            category={category}
+            handles={uploads.filter((row) => row.status === "ready").map((row) => normalizeHandle(row.handle)).filter((handle) => handle.length >= 2)}
+          />
           {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">No Brand Kit is available. You can still create the story and select voices separately.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
           {setupSaveError && (
@@ -1323,6 +1379,7 @@ function StoryFlow(props: any) {
     {voiceLanguageNote}
     <VisualConsistencyStep {...props} />
     <BackdropReviewStep draft={draft} />
+    <GuidedAudioPlacementEditor draft={draft} disabled={props.pending || props.existingJobId !== null} />
     {props.existingJobId === null && props.studioLipSyncControls}
     {props.existingJobId === null && props.attemptConsentRequired && (
       <div className="flex items-start gap-2 rounded-lg border-2 border-amber-500 bg-amber-50 p-3 dark:bg-amber-950/20" data-testid="section-guided-attempt-consent">
@@ -1578,6 +1635,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
     <div><b>{label}</b> <span className="text-sm text-muted-foreground">Uses default backdrop</span></div><p className="text-sm text-muted-foreground">{direction}</p>
     <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Optional—leave blank and AI will use this scene’s story direction" data-testid={test("input-guided-backdrop-prompt")} />
     <Input type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid={test("input-guided-backdrop-upload")} />
+    <BackdropUploadShortcuts draft={draft} sceneId={sceneId} disabled={prepare.isPending} onUse={(reference) => void selectForApproval({ ...reference, prompt: fitGuidedBackdropPrompt(reference.prompt) })} />
     <Button type="button" variant="outline" onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>{file ? "Use uploaded override" : "AI generate scene override"}</Button>
     {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
   </div>;
@@ -1600,6 +1658,7 @@ function SceneBackdropEditor({ draft, label, sceneId, direction, backdrop, legac
     </div> : shown && <button type="button" onClick={() => setEnlarged(true)} aria-label={`Enlarge ${label}`} data-testid={test("button-enlarge-guided-backdrop")}><img src={`/api/storage${shown.imagePath}`} alt={`${label} reference`} className="h-32 w-52 rounded-md border object-cover" /></button>}
     <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={sceneId ? "Optional—leave blank and AI will use this scene’s story direction" : "Optional—leave blank and AI will use the approved story and every scene direction"} data-testid={test("input-guided-backdrop-prompt")} />
     <Input type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid={test("input-guided-backdrop-upload")} />
+    <BackdropUploadShortcuts draft={draft} sceneId={sceneId} disabled={prepare.isPending} onUse={(reference) => void selectForApproval({ ...reference, prompt: fitGuidedBackdropPrompt(reference.prompt) })} />
     <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={isGenerating} aria-busy={isGenerating} onClick={() => void save()} data-testid={test("button-prepare-guided-backdrop")}>
         {isGenerating && <Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" />}
         <span className={isGenerating ? "animate-pulse motion-reduce:animate-none" : undefined}>
@@ -1970,6 +2029,28 @@ function CastApprovalStep(props: any) {
       refreshCreditBalanceSafely(queryClient);
     }
   };
+  /** Replace a role's identity with the user's own uploaded photo (reviewed before use). */
+  const applyUploadedPhoto = async (roleId: string, uploadPath: string) => {
+    setOutfitRoleId(roleId);
+    setOutfitCandidate(null);
+    setOutfitError(null);
+    try {
+      const operation = await createReference.mutateAsync({
+        draftId: props.draft.id,
+        data: {
+          revision: props.draft.revision,
+          roleId,
+          kind: "character",
+          source: "upload",
+          uploadPath,
+          confirmed: true,
+        },
+      });
+      setOutfitCandidate(operation);
+    } catch (cause) {
+      setOutfitError(apiErrorMessage(cause, "Could not use this photo for the character."));
+    }
+  };
   const confirmOutfitCandidate = async () => {
     if (!outfitCandidate) return;
     setOutfitError(null);
@@ -2039,6 +2120,17 @@ function CastApprovalStep(props: any) {
                   : "Reference sheet rejected. Generate a replacement before approving this role."}
               </p>
             )}
+            <RoleUploadShortcuts
+              draft={props.draft}
+              roleId={role.id}
+              roleName={role.name}
+              onFillLook={cast?.source === "generated" ? (look) => {
+                openCustomization(role.id, cast);
+                if (look.description) setCustomDescription(look.description);
+                if (look.wardrobe) setCustomWardrobe(look.wardrobe);
+              } : undefined}
+              onUsePhoto={(path) => void applyUploadedPhoto(role.id, path)}
+            />
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setReviewRoleId(role.id)} data-testid={`button-guided-review-cast-${role.id}`}>Review references</Button>
               {cast?.source === "generated" && <Button type="button" variant="outline" onClick={() => openCustomization(role.id, cast)} data-testid={`button-guided-customize-character-${role.id}`}>Customize Character</Button>}
@@ -2290,6 +2382,11 @@ function VisualConsistencyStep(props: any) {
       <div className="space-y-2">
         <Label htmlFor="input-guided-logo">Logo (optional)</Label>
         <Input id="input-guided-logo" type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => { const file = event.target.files?.[0]; if (file) void props.onUploadVisual("logo", file); }} data-testid="input-guided-logo" />
+        {(props.draft?.setup?.references?.items ?? []).filter((item: any) => item.use === "logo").map((item: any) => (
+          <Button key={item.id} type="button" size="sm" variant="outline" className="h-7 w-fit gap-1.5 text-xs" disabled={choices.logo.path === item.path} onClick={() => props.setVisualChoices((current: VisualChoices) => ({ ...current, logo: { ...current.logo, path: item.path } }))} data-testid={`button-guided-use-logo-${item.id}`}>
+            <img src={`/api/storage${item.path}`} alt="" className="h-4 w-4 rounded-sm object-contain" />{choices.logo.path === item.path ? `Using @${item.handle}` : `Use @${item.handle}`}
+          </Button>
+        ))}
         {props.visualUploading === "logo" && <p role="status" data-testid="status-guided-logo-upload">Uploading logo…</p>}
         {choices.logo.path && <p className="text-sm" data-testid="status-guided-logo-selected">Logo selected. Choose scenes that should show it:</p>}
         {choices.logo.path && <div className="grid gap-2">{scenes.map((scene: any, index: number) => <div className="flex items-center gap-2" key={scene.id}><Checkbox checked={choices.logo.sceneIds.includes(scene.id)} onCheckedChange={(checked) => props.setVisualChoices((current: VisualChoices) => ({ ...current, logo: { ...current.logo, sceneIds: checked === true ? [...new Set([...current.logo.sceneIds, scene.id])] : current.logo.sceneIds.filter((id) => id !== scene.id) } }))} data-testid={`checkbox-guided-logo-scene-${scene.id}`} /><Label>Scene {index + 1}</Label></div>)}</div>}
@@ -2549,6 +2646,7 @@ function ScriptReview(props: any) {
   return (
     <>
       <ScriptSummary script={editedScript} />
+      <GuidedRequirementChecklist checks={props.draft.requirementChecks} />
       <div className="space-y-4" data-testid="guided-readable-script">
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1.5">
@@ -2704,6 +2802,19 @@ function ScriptReview(props: any) {
                       if (index !== sceneIndex) return item;
                       const { productIds: _previous, ...rest } = item;
                       return productIds.length ? { ...rest, productIds } : rest;
+                    });
+                    updateScript({ ...editedScript, scenes });
+                  }}
+                />
+                <SceneReferenceToggles
+                  draft={props.draft}
+                  referenceIds={scene.referenceIds ?? []}
+                  sceneLabel={scene.id}
+                  onChange={(referenceIds) => {
+                    const scenes = editedScript.scenes.map((item, index) => {
+                      if (index !== sceneIndex) return item;
+                      const { referenceIds: _previous, ...rest } = item;
+                      return referenceIds.length ? { ...rest, referenceIds } : rest;
                     });
                     updateScript({ ...editedScript, scenes });
                   }}
@@ -3090,6 +3201,14 @@ function CastFields({
       data-testid={`card-guided-cast-${role.id}`}
     >
       <b>{role.name}</b>
+      {draft && (
+        <RoleUploadShortcuts
+          draft={draft}
+          roleId={role.id}
+          roleName={role.name}
+          onVoiceReady={(voiceId) => updateAssignment(role.id, { voiceId, voiceChoiceConfirmed: true })}
+        />
+      )}
       <Select
         value={item.characterId?.toString() ?? ""}
         onValueChange={(value) =>

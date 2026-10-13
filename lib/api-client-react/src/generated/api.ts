@@ -274,9 +274,13 @@ import type {
   GuidedStoryPlatformContract,
   GuidedStoryReferenceFinalizationInput,
   GuidedStoryReferenceInput,
+  GuidedStoryReferenceInspectInput,
+  GuidedStoryReferenceInspection,
   GuidedStoryReferenceOperation,
   GuidedStoryReferenceOperationCompleteInput,
   GuidedStoryReferenceOperationStartInput,
+  GuidedStoryReferenceTranscribeInput,
+  GuidedStoryReferenceTranscript,
   GuidedStoryRevisionInput,
   GuidedStorySceneInsertionInput,
   GuidedStorySceneInsertionResult,
@@ -18687,6 +18691,146 @@ export function useListGuidedStoryPlatforms<TData = Awaited<ReturnType<typeof li
 
 
 
+
+export const getInspectGuidedStoryReferenceUrl = () => {
+
+
+
+
+  return `/api/ai/guided-story/references/inspect`
+}
+
+/**
+ * @summary Inspect an uploaded story reference (media facts, optional AI description and suggested use)
+ */
+export const inspectGuidedStoryReference = async (guidedStoryReferenceInspectInput: GuidedStoryReferenceInspectInput, options?: RequestInit): Promise<GuidedStoryReferenceInspection> => {
+
+  return customFetch<GuidedStoryReferenceInspection>(getInspectGuidedStoryReferenceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryReferenceInspectInput)
+  }
+);}
+
+
+
+
+export const getInspectGuidedStoryReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inspectGuidedStoryReference>>, TError,{data: BodyType<GuidedStoryReferenceInspectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof inspectGuidedStoryReference>>, TError,{data: BodyType<GuidedStoryReferenceInspectInput>}, TContext> => {
+
+const mutationKey = ['inspectGuidedStoryReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof inspectGuidedStoryReference>>, {data: BodyType<GuidedStoryReferenceInspectInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  inspectGuidedStoryReference(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InspectGuidedStoryReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof inspectGuidedStoryReference>>>
+    export type InspectGuidedStoryReferenceMutationBody = BodyType<GuidedStoryReferenceInspectInput>
+    export type InspectGuidedStoryReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Inspect an uploaded story reference (media facts, optional AI description and suggested use)
+ */
+export const useInspectGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inspectGuidedStoryReference>>, TError,{data: BodyType<GuidedStoryReferenceInspectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof inspectGuidedStoryReference>>,
+        TError,
+        {data: BodyType<GuidedStoryReferenceInspectInput>},
+        TContext
+      > => {
+      return useMutation(getInspectGuidedStoryReferenceMutationOptions(options));
+    }
+
+export const getTranscribeGuidedStoryReferenceUrl = () => {
+
+
+
+
+  return `/api/ai/guided-story/references/transcribe`
+}
+
+/**
+ * @summary Transcribe an uploaded voiceover or voice reference (metered)
+ */
+export const transcribeGuidedStoryReference = async (guidedStoryReferenceTranscribeInput: GuidedStoryReferenceTranscribeInput, options?: RequestInit): Promise<GuidedStoryReferenceTranscript> => {
+
+  return customFetch<GuidedStoryReferenceTranscript>(getTranscribeGuidedStoryReferenceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryReferenceTranscribeInput)
+  }
+);}
+
+
+
+
+export const getTranscribeGuidedStoryReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transcribeGuidedStoryReference>>, TError,{data: BodyType<GuidedStoryReferenceTranscribeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof transcribeGuidedStoryReference>>, TError,{data: BodyType<GuidedStoryReferenceTranscribeInput>}, TContext> => {
+
+const mutationKey = ['transcribeGuidedStoryReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof transcribeGuidedStoryReference>>, {data: BodyType<GuidedStoryReferenceTranscribeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  transcribeGuidedStoryReference(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TranscribeGuidedStoryReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof transcribeGuidedStoryReference>>>
+    export type TranscribeGuidedStoryReferenceMutationBody = BodyType<GuidedStoryReferenceTranscribeInput>
+    export type TranscribeGuidedStoryReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Transcribe an uploaded voiceover or voice reference (metered)
+ */
+export const useTranscribeGuidedStoryReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transcribeGuidedStoryReference>>, TError,{data: BodyType<GuidedStoryReferenceTranscribeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof transcribeGuidedStoryReference>>,
+        TError,
+        {data: BodyType<GuidedStoryReferenceTranscribeInput>},
+        TContext
+      > => {
+      return useMutation(getTranscribeGuidedStoryReferenceMutationOptions(options));
+    }
 
 export const getListGuidedStoryVoicesUrl = () => {
 

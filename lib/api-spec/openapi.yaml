@@ -6594,6 +6594,54 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/GuidedStoryPlatformContract"
+  /ai/guided-story/references/inspect:
+    post:
+      operationId: inspectGuidedStoryReference
+      tags: [ai]
+      summary: Inspect an uploaded story reference (media facts, optional AI description and suggested use)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryReferenceInspectInput"
+      responses:
+        "200":
+          description: Server-derived facts; nothing is saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryReferenceInspection"
+        "400":
+          description: Unsupported, unreadable or too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/references/transcribe:
+    post:
+      operationId: transcribeGuidedStoryReference
+      tags: [ai]
+      summary: Transcribe an uploaded voiceover or voice reference (metered)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryReferenceTranscribeInput"
+      responses:
+        "200":
+          description: Transcript text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryReferenceTranscript"
+        "400":
+          description: Not an audio upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/guided-story/voices:
     get:
       operationId: listGuidedStoryVoices
@@ -20313,7 +20361,47 @@ components:
       properties:
         genre:
           type: string
-          enum: [action_adventure, comedy, drama, romance, thriller_mystery, fantasy, science_fiction]
+          enum:
+            [
+              action_adventure,
+              comedy,
+              drama,
+              romance,
+              thriller_mystery,
+              fantasy,
+              science_fiction,
+              slice_of_life,
+              problem_solution,
+              customer_story,
+              heartwarming,
+              inspirational,
+              explainer,
+              mythological_period,
+              satire_parody,
+              custom,
+            ]
+        customTone:
+          type: ["string", "null"]
+          maxLength: 200
+          description: Required for the custom genre (3-200 characters); ignored otherwise.
+        category:
+          type: string
+          enum: [general, medical, chartered_accountant]
+          description: >
+            Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words
+            list apply. A Brand Kit already set to a regulated profession always keeps it.
+        requirements:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryRequirementsInput"
+            - type: "null"
+        uploads:
+          type: array
+          maxItems: 12
+          description: >
+            Story uploads addressable as @handle. Omit on an update to keep the
+            current uploads; send [] to clear them. Stored as setup.references.
+          items:
+            $ref: "#/components/schemas/GuidedStoryUploadInput"
         platform:
           type: string
           enum: [instagram_reels, tiktok, youtube_shorts, instagram_feed, youtube]
@@ -20331,6 +20419,181 @@ components:
         brandKitId: { type: ["integer", "null"] }
         productSelection:
           $ref: "#/components/schemas/GuidedStoryProductSelectionInput"
+    GuidedStoryRequirementsInput:
+      type: object
+      properties:
+        mustShow:
+          type: array
+          maxItems: 8
+          items: { type: string, maxLength: 120 }
+        mustSay:
+          type: array
+          maxItems: 6
+          items: { type: string, maxLength: 160 }
+        callToAction: { type: ["string", "null"], maxLength: 160 }
+        bannedWords:
+          type: array
+          maxItems: 40
+          description: Only kept for medical or CA videos.
+          items: { type: string, maxLength: 60 }
+    GuidedStoryRequirements:
+      allOf:
+        - $ref: "#/components/schemas/GuidedStoryRequirementsInput"
+        - type: object
+          required: [version, mustShow, mustSay, callToAction, bannedWords]
+          properties:
+            version: { type: integer, const: 1 }
+    GuidedStoryReferenceUse:
+      type: string
+      enum:
+        [
+          character,
+          outfit,
+          product,
+          backdrop,
+          prop,
+          style,
+          logo,
+          opening_shot,
+          closing_shot,
+          other_image,
+          motion,
+          footage,
+          voice,
+          music,
+          voiceover,
+          sfx,
+          brief,
+        ]
+    GuidedStoryUploadInput:
+      type: object
+      additionalProperties: false
+      required: [path, handle, use]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Canonical tenant-owned upload path.
+        handle: { type: string, minLength: 2, maxLength: 40 }
+        label: { type: ["string", "null"], maxLength: 120 }
+        use:
+          $ref: "#/components/schemas/GuidedStoryReferenceUse"
+        notes: { type: ["string", "null"], maxLength: 400 }
+        aiDescription: { type: ["string", "null"], maxLength: 900 }
+        transcript: { type: ["string", "null"], maxLength: 4000 }
+        voiceFor:
+          type: ["string", "null"]
+          maxLength: 64
+          description: For a voice upload, the @handle of the character upload (or a script role id) it voices.
+        rightsConfirmed:
+          type: ["boolean", "null"]
+          description: Required true for voice, voiceover, music and footage uploads.
+    GuidedStoryUploadReference:
+      type: object
+      required:
+        [id, handle, label, media, use, path, sha256, mimeType, byteLength, durationSeconds, notes, aiDescription, transcript, documentText, voiceFor, rightsConfirmed]
+      properties:
+        id: { type: string }
+        handle: { type: string }
+        label: { type: string }
+        media: { type: string, enum: [image, video, audio, document] }
+        use:
+          $ref: "#/components/schemas/GuidedStoryReferenceUse"
+        path: { type: string }
+        sha256: { type: string }
+        mimeType: { type: string }
+        byteLength: { type: integer }
+        durationSeconds: { type: ["number", "null"] }
+        notes: { type: string }
+        aiDescription: { type: ["string", "null"] }
+        transcript: { type: ["string", "null"] }
+        documentText: { type: ["string", "null"] }
+        voiceFor: { type: ["string", "null"] }
+        rightsConfirmed: { type: boolean }
+    GuidedStoryReferenceLibrary:
+      type: object
+      required: [version, items]
+      properties:
+        version: { type: integer, const: 1 }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuidedStoryUploadReference"
+    GuidedStoryReferenceInspectInput:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: { type: string, minLength: 1, maxLength: 512 }
+        label: { type: ["string", "null"], maxLength: 120 }
+        notes: { type: ["string", "null"], maxLength: 400 }
+        describe:
+          type: boolean
+          default: true
+          description: Run the metered AI description for images and videos.
+    GuidedStoryReferenceInspection:
+      type: object
+      required: [media, mimeType, sha256, byteLength, durationSeconds, documentExcerpt, allowedUses, suggestedUse, suggestedHandle, aiDescription, aiError]
+      properties:
+        media: { type: string, enum: [image, video, audio, document] }
+        mimeType: { type: string }
+        sha256: { type: string }
+        byteLength: { type: integer }
+        durationSeconds: { type: ["number", "null"] }
+        documentExcerpt: { type: ["string", "null"] }
+        allowedUses:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuidedStoryReferenceUse"
+        suggestedUse:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryReferenceUse"
+            - type: "null"
+        suggestedHandle: { type: ["string", "null"] }
+        aiDescription: { type: ["string", "null"] }
+        aiError: { type: ["string", "null"] }
+    GuidedStoryReferenceTranscribeInput:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: { type: string, minLength: 1, maxLength: 512 }
+    GuidedStoryReferenceTranscript:
+      type: object
+      required: [transcript]
+      properties:
+        transcript: { type: string }
+    GuidedStoryAudioPlacement:
+      type: object
+      required: [referenceId, sceneId, startSeconds, endSeconds, volume, duckUnderSpeech, replaceGeneratedAudio]
+      properties:
+        referenceId: { type: string }
+        sceneId:
+          type: ["string", "null"]
+          description: Anchor scene; startSeconds/endSeconds are then offsets from its start.
+        startSeconds: { type: number, minimum: 0, maximum: 600 }
+        endSeconds: { type: ["number", "null"], minimum: 0, maximum: 600 }
+        volume: { type: number, minimum: 0, maximum: 1.5 }
+        duckUnderSpeech: { type: boolean }
+        replaceGeneratedAudio: { type: boolean }
+    GuidedStoryAudioChoices:
+      type: object
+      required: [version, items]
+      properties:
+        version: { type: integer, const: 1 }
+        items:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/GuidedStoryAudioPlacement"
+    GuidedStoryRequirementCheck:
+      type: object
+      required: [kind, text, met]
+      properties:
+        kind: { type: string, enum: [must_show, must_say, call_to_action, reference] }
+        text: { type: string }
+        met: { type: boolean }
     GuidedStoryProductSelectionInput:
       type: object
       additionalProperties: false
@@ -20438,6 +20701,11 @@ components:
           $ref: "#/components/schemas/GuidedStoryScript"
         visualChoices:
           $ref: "#/components/schemas/GuidedStoryVisualChoicesInput"
+        audioChoices:
+          description: Music / voiceover / sound-effect placement. Never invalidates cast or backdrop approvals; null clears it.
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryAudioChoices"
+            - type: "null"
     GuidedStoryVisualChoicesInput:
       type: object
       additionalProperties: false
@@ -20593,6 +20861,9 @@ components:
         id: { type: string }
         name: { type: string }
         description: { type: string }
+        referenceId:
+          type: string
+          description: Story upload id (setup.references.items[].id) of the character upload that casts this role.
     GuidedStoryLine:
       type: object
       required: [id, ownerRoleId, kind, text, startMs, endMs]
@@ -20625,6 +20896,11 @@ components:
           type: array
           maxItems: 2
           description: Frozen draft product ids (setup.products.items[].id) shown in this scene.
+          items: { type: string }
+        referenceIds:
+          type: array
+          maxItems: 3
+          description: Story upload ids (setup.references.items[].id) used in this scene.
           items: { type: string }
         lines:
           type: array
@@ -21074,6 +21350,10 @@ components:
               oneOf:
                 - $ref: "#/components/schemas/GuidedStoryProductChoices"
                 - type: "null"
+            references:
+              oneOf:
+                - $ref: "#/components/schemas/GuidedStoryReferenceLibrary"
+                - type: "null"
     GuidedStoryVisualChoices:
       allOf:
         - $ref: "#/components/schemas/GuidedStoryVisualChoicesInput"
@@ -21179,6 +21459,15 @@ components:
             $ref: "#/components/schemas/GuidedStoryReferenceOperation"
         visualChoices:
           $ref: "#/components/schemas/GuidedStoryVisualChoices"
+        audioChoices:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryAudioChoices"
+            - type: "null"
+        requirementChecks:
+          type: array
+          description: The script's requirement checklist (what must be shown, said and used). Never blocks approval.
+          items:
+            $ref: "#/components/schemas/GuidedStoryRequirementCheck"
         storyboardJobId: { type: ["integer", "null"] }
         estimates:
           type: object

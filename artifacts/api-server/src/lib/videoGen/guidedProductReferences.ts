@@ -2,6 +2,7 @@ import type { VideoStoryboardScene } from "@workspace/db";
 import { ObjectStorageService } from "../objectStorage";
 import { VideoGenProviderError } from "./types";
 import { guidedInScenePhotoProducts } from "./guidedStory";
+import { guidedScenePhotoReferences } from "./guidedReferences";
 import { readReferenceBytes, referenceDigest } from "./topicVideo/referenceImages";
 
 type GuidedSceneVisuals = NonNullable<VideoStoryboardScene["guidedStory"]>["visuals"];
@@ -32,7 +33,8 @@ export async function loadApprovedProductImage(
 }
 
 /**
- * Extra Wan `refers` for a scene that shows in-scene products, appended after
+ * Extra Wan `refers` for a scene that shows in-scene products or story upload
+ * images, appended after
  * the cast pairs. The prompt labels these positions as cast…, backdrop,
  * products, so when products are attached the approved backdrop plate is
  * attached too — otherwise every product label would be off by one.
@@ -44,7 +46,8 @@ export async function guidedWanProductReferenceUrls(params: {
   visuals: GuidedSceneVisuals | undefined;
 }): Promise<string[]> {
   const products = guidedInScenePhotoProducts(params.visuals?.products);
-  if (!products.length) return [];
+  const uploads = guidedScenePhotoReferences(params.visuals?.references);
+  if (!products.length && !uploads.length) return [];
   const urls: string[] = [];
   const backdropPath = params.visuals?.backdropReferencePath;
   if (backdropPath) {
@@ -64,6 +67,19 @@ export async function guidedWanProductReferenceUrls(params: {
     await loadApprovedProductImage(product, params.tenantId);
     urls.push(
       await storage.getSignedDownloadURL(product.imagePath, params.tenantId, SIGNED_URL_TTL_SECONDS),
+    );
+  }
+  // Story uploads (props, style, opening/closing shot) follow the products,
+  // matching the @Image labels the scene prompt was written with.
+  for (const upload of uploads) {
+    const bytes = await readReferenceBytes(upload.imagePath, params.tenantId).catch(() => null);
+    if (!bytes || referenceDigest(bytes) !== upload.imageSha256) {
+      throw new VideoGenProviderError(
+        `The upload @${upload.handle} changed or was removed after the script was approved. Upload it again in the story setup and start again.`,
+      );
+    }
+    urls.push(
+      await storage.getSignedDownloadURL(upload.imagePath, params.tenantId, SIGNED_URL_TTL_SECONDS),
     );
   }
   return urls;

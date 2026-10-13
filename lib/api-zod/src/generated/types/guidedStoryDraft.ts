@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryAudioChoices } from './guidedStoryAudioChoices';
 import type { GuidedStoryCastApprovalManifest } from './guidedStoryCastApprovalManifest';
 import type { GuidedStoryCastSnapshot } from './guidedStoryCastSnapshot';
 import type { GuidedStoryDraftCastStrategy } from './guidedStoryDraftCastStrategy';
@@ -14,6 +15,7 @@ import type { GuidedStoryDraftSceneInsertionGeneration } from './guidedStoryDraf
 import type { GuidedStoryDraftScriptGeneration } from './guidedStoryDraftScriptGeneration';
 import type { GuidedStoryImageModelSnapshot } from './guidedStoryImageModelSnapshot';
 import type { GuidedStoryReferenceOperation } from './guidedStoryReferenceOperation';
+import type { GuidedStoryRequirementCheck } from './guidedStoryRequirementCheck';
 import type { GuidedStoryScript } from './guidedStoryScript';
 import type { GuidedStorySetup } from './guidedStorySetup';
 import type { GuidedStoryVisualChoices } from './guidedStoryVisualChoices';
@@ -44,6 +46,9 @@ export interface GuidedStoryDraft {
   sceneInsertionGeneration?: GuidedStoryDraftSceneInsertionGeneration;
   referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
+  audioChoices?: GuidedStoryAudioChoices | null;
+  /** The script's requirement checklist (what must be shown, said and used). Never blocks approval. */
+  requirementChecks?: GuidedStoryRequirementCheck[];
   /** @nullable */
   storyboardJobId: number | null;
   /** Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts. */

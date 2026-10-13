@@ -16885,6 +16885,55 @@ export const ListGuidedStoryPlatformsResponse = zod.array(ListGuidedStoryPlatfor
 
 
 /**
+ * @summary Inspect an uploaded story reference (media facts, optional AI description and suggested use)
+ */
+export const inspectGuidedStoryReferenceBodyPathMax = 512;
+
+export const inspectGuidedStoryReferenceBodyLabelMax = 120;
+
+export const inspectGuidedStoryReferenceBodyNotesMax = 400;
+
+export const inspectGuidedStoryReferenceBodyDescribeDefault = true;
+
+export const InspectGuidedStoryReferenceBody = zod.object({
+  "path": zod.string().min(1).max(inspectGuidedStoryReferenceBodyPathMax),
+  "label": zod.string().max(inspectGuidedStoryReferenceBodyLabelMax).nullish(),
+  "notes": zod.string().max(inspectGuidedStoryReferenceBodyNotesMax).nullish(),
+  "describe": zod.boolean().default(inspectGuidedStoryReferenceBodyDescribeDefault).describe('Run the metered AI description for images and videos.')
+})
+
+export const InspectGuidedStoryReferenceResponse = zod.object({
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "mimeType": zod.string(),
+  "sha256": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "documentExcerpt": zod.string().nullable(),
+  "allowedUses": zod.array(zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief'])),
+  "suggestedUse": zod.union([zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),zod.null()]),
+  "suggestedHandle": zod.string().nullable(),
+  "aiDescription": zod.string().nullable(),
+  "aiError": zod.string().nullable()
+})
+
+
+/**
+ * @summary Transcribe an uploaded voiceover or voice reference (metered)
+ */
+export const transcribeGuidedStoryReferenceBodyPathMax = 512;
+
+
+
+export const TranscribeGuidedStoryReferenceBody = zod.object({
+  "path": zod.string().min(1).max(transcribeGuidedStoryReferenceBodyPathMax)
+})
+
+export const TranscribeGuidedStoryReferenceResponse = zod.object({
+  "transcript": zod.string()
+})
+
+
+/**
  * @summary List tenant-safe voices available for Guided Story casting
  */
 export const ListGuidedStoryVoicesResponse = zod.object({
@@ -16902,6 +16951,39 @@ export const ListGuidedStoryVoicesResponse = zod.object({
 /**
  * @summary Create a durable tenant-scoped guided-story draft
  */
+export const createGuidedStoryDraftBodyCustomToneMax = 200;
+
+export const createGuidedStoryDraftBodyRequirementsOneMustShowItemMax = 120;
+
+export const createGuidedStoryDraftBodyRequirementsOneMustShowMax = 8;
+
+export const createGuidedStoryDraftBodyRequirementsOneMustSayItemMax = 160;
+
+export const createGuidedStoryDraftBodyRequirementsOneMustSayMax = 6;
+
+export const createGuidedStoryDraftBodyRequirementsOneCallToActionMax = 160;
+
+export const createGuidedStoryDraftBodyRequirementsOneBannedWordsItemMax = 60;
+
+export const createGuidedStoryDraftBodyRequirementsOneBannedWordsMax = 40;
+
+export const createGuidedStoryDraftBodyUploadsItemPathMax = 512;
+
+export const createGuidedStoryDraftBodyUploadsItemHandleMin = 2;
+export const createGuidedStoryDraftBodyUploadsItemHandleMax = 40;
+
+export const createGuidedStoryDraftBodyUploadsItemLabelMax = 120;
+
+export const createGuidedStoryDraftBodyUploadsItemNotesMax = 400;
+
+export const createGuidedStoryDraftBodyUploadsItemAiDescriptionMax = 900;
+
+export const createGuidedStoryDraftBodyUploadsItemTranscriptMax = 4000;
+
+export const createGuidedStoryDraftBodyUploadsItemVoiceForMax = 64;
+
+export const createGuidedStoryDraftBodyUploadsMax = 12;
+
 export const createGuidedStoryDraftBodyDurationSecondsMin = 15;
 export const createGuidedStoryDraftBodyDurationSecondsMax = 300;
 
@@ -16917,7 +16999,26 @@ export const createGuidedStoryDraftBodyProductSelectionAssetIdsMax = 4;
 
 
 export const CreateGuidedStoryDraftBody = zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(createGuidedStoryDraftBodyCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(createGuidedStoryDraftBodyRequirementsOneMustShowItemMax)).max(createGuidedStoryDraftBodyRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(createGuidedStoryDraftBodyRequirementsOneMustSayItemMax)).max(createGuidedStoryDraftBodyRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(createGuidedStoryDraftBodyRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(createGuidedStoryDraftBodyRequirementsOneBannedWordsItemMax)).max(createGuidedStoryDraftBodyRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(createGuidedStoryDraftBodyUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(createGuidedStoryDraftBodyUploadsItemHandleMin).max(createGuidedStoryDraftBodyUploadsItemHandleMax),
+  "label": zod.string().max(createGuidedStoryDraftBodyUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(createGuidedStoryDraftBodyUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(createGuidedStoryDraftBodyUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(createGuidedStoryDraftBodyUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(createGuidedStoryDraftBodyUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(createGuidedStoryDraftBodyUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(createGuidedStoryDraftBodyDurationSecondsMin).max(createGuidedStoryDraftBodyDurationSecondsMax),
   "locale": zod.string().min(createGuidedStoryDraftBodyLocaleMin).max(createGuidedStoryDraftBodyLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -16929,6 +17030,39 @@ export const CreateGuidedStoryDraftBody = zod.object({
   "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftBodyProductSelectionAssetIdsMax)
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 })
+
+export const createGuidedStoryDraftResponseSetupOneOneCustomToneMax = 200;
+
+export const createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const createGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const createGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const createGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin = 2;
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const createGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
 
 export const createGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const createGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
@@ -16949,6 +17083,8 @@ export const createGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const createGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const createGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const createGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -16963,6 +17099,8 @@ export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptS
 
 
 export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -16985,6 +17123,17 @@ export const createGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverrid
 export const createGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const createGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const createGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const createGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const createGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const createGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const createGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const createGuidedStoryDraftResponseAudioChoicesOneItemsMax = 12;
+
 export const createGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
 export const createGuidedStoryDraftResponseEstimatesCastAssetUnitsMin = 0;
@@ -17006,7 +17155,26 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(createGuidedStoryDraftResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax)).max(createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax)).max(createGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(createGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(createGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(createGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(createGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(createGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin).max(createGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(createGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(createGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(createGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(createGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(createGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(createGuidedStoryDraftResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(createGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(createGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(createGuidedStoryDraftResponseSetupOneOneLocaleMin).max(createGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -17037,6 +17205,27 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -17054,7 +17243,8 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(createGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -17063,6 +17253,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17159,7 +17350,8 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -17168,6 +17360,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17280,6 +17473,23 @@ export const CreateGuidedStoryDraftResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(createGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin).max(createGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(createGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin).max(createGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(createGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin).max(createGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(createGuidedStoryDraftResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(createGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -17302,6 +17512,39 @@ export const GetGuidedStoryDraftParams = zod.object({
   "draftId": zod.coerce.number()
 })
 
+export const getGuidedStoryDraftResponseSetupOneOneCustomToneMax = 200;
+
+export const getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const getGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const getGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const getGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin = 2;
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const getGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
+
 export const getGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const getGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -17321,6 +17564,8 @@ export const getGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const getGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const getGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const getGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -17335,6 +17580,8 @@ export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScen
 
 
 export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17357,6 +17604,17 @@ export const getGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesI
 export const getGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const getGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const getGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const getGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const getGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const getGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const getGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const getGuidedStoryDraftResponseAudioChoicesOneItemsMax = 12;
+
 export const getGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
 export const getGuidedStoryDraftResponseEstimatesCastAssetUnitsMin = 0;
@@ -17378,7 +17636,26 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(getGuidedStoryDraftResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax)).max(getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax)).max(getGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(getGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(getGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(getGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(getGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(getGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin).max(getGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(getGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(getGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(getGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(getGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(getGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(getGuidedStoryDraftResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(getGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(getGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(getGuidedStoryDraftResponseSetupOneOneLocaleMin).max(getGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -17409,6 +17686,27 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -17426,7 +17724,8 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(getGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -17435,6 +17734,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17531,7 +17831,8 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -17540,6 +17841,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17652,6 +17954,23 @@ export const GetGuidedStoryDraftResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(getGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin).max(getGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(getGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin).max(getGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(getGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin).max(getGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(getGuidedStoryDraftResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(getGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -17675,6 +17994,39 @@ export const UpdateGuidedStoryDraftParams = zod.object({
 })
 
 
+export const updateGuidedStoryDraftBodySetupCustomToneMax = 200;
+
+export const updateGuidedStoryDraftBodySetupRequirementsOneMustShowItemMax = 120;
+
+export const updateGuidedStoryDraftBodySetupRequirementsOneMustShowMax = 8;
+
+export const updateGuidedStoryDraftBodySetupRequirementsOneMustSayItemMax = 160;
+
+export const updateGuidedStoryDraftBodySetupRequirementsOneMustSayMax = 6;
+
+export const updateGuidedStoryDraftBodySetupRequirementsOneCallToActionMax = 160;
+
+export const updateGuidedStoryDraftBodySetupRequirementsOneBannedWordsItemMax = 60;
+
+export const updateGuidedStoryDraftBodySetupRequirementsOneBannedWordsMax = 40;
+
+export const updateGuidedStoryDraftBodySetupUploadsItemPathMax = 512;
+
+export const updateGuidedStoryDraftBodySetupUploadsItemHandleMin = 2;
+export const updateGuidedStoryDraftBodySetupUploadsItemHandleMax = 40;
+
+export const updateGuidedStoryDraftBodySetupUploadsItemLabelMax = 120;
+
+export const updateGuidedStoryDraftBodySetupUploadsItemNotesMax = 400;
+
+export const updateGuidedStoryDraftBodySetupUploadsItemAiDescriptionMax = 900;
+
+export const updateGuidedStoryDraftBodySetupUploadsItemTranscriptMax = 4000;
+
+export const updateGuidedStoryDraftBodySetupUploadsItemVoiceForMax = 64;
+
+export const updateGuidedStoryDraftBodySetupUploadsMax = 12;
+
 export const updateGuidedStoryDraftBodySetupDurationSecondsMin = 15;
 export const updateGuidedStoryDraftBodySetupDurationSecondsMax = 300;
 
@@ -17693,6 +18045,8 @@ export const updateGuidedStoryDraftBodyScriptScenesItemStartMsMin = 0;
 
 
 export const updateGuidedStoryDraftBodyScriptScenesItemProductIdsMax = 2;
+
+export const updateGuidedStoryDraftBodyScriptScenesItemReferenceIdsMax = 3;
 
 export const updateGuidedStoryDraftBodyScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17715,12 +18069,42 @@ export const updateGuidedStoryDraftBodyVisualChoicesBackdropsSceneOverridesImage
 export const updateGuidedStoryDraftBodyVisualChoicesBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const updateGuidedStoryDraftBodyAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const updateGuidedStoryDraftBodyAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const updateGuidedStoryDraftBodyAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const updateGuidedStoryDraftBodyAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const updateGuidedStoryDraftBodyAudioChoicesOneItemsItemVolumeMin = 0;
+export const updateGuidedStoryDraftBodyAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const updateGuidedStoryDraftBodyAudioChoicesOneItemsMax = 12;
+
 
 
 export const UpdateGuidedStoryDraftBody = zod.object({
   "revision": zod.number().min(1),
   "setup": zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(updateGuidedStoryDraftBodySetupCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(updateGuidedStoryDraftBodySetupRequirementsOneMustShowItemMax)).max(updateGuidedStoryDraftBodySetupRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(updateGuidedStoryDraftBodySetupRequirementsOneMustSayItemMax)).max(updateGuidedStoryDraftBodySetupRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(updateGuidedStoryDraftBodySetupRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(updateGuidedStoryDraftBodySetupRequirementsOneBannedWordsItemMax)).max(updateGuidedStoryDraftBodySetupRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(updateGuidedStoryDraftBodySetupUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(updateGuidedStoryDraftBodySetupUploadsItemHandleMin).max(updateGuidedStoryDraftBodySetupUploadsItemHandleMax),
+  "label": zod.string().max(updateGuidedStoryDraftBodySetupUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(updateGuidedStoryDraftBodySetupUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(updateGuidedStoryDraftBodySetupUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(updateGuidedStoryDraftBodySetupUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(updateGuidedStoryDraftBodySetupUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(updateGuidedStoryDraftBodySetupUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(updateGuidedStoryDraftBodySetupDurationSecondsMin).max(updateGuidedStoryDraftBodySetupDurationSecondsMax),
   "locale": zod.string().min(updateGuidedStoryDraftBodySetupLocaleMin).max(updateGuidedStoryDraftBodySetupLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -17740,7 +18124,8 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(updateGuidedStoryDraftBodyScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -17749,6 +18134,7 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17809,8 +18195,53 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "approvedAt": zod.coerce.date().nullable()
 }))
 }).optional()
-}).optional()
+}).optional(),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(updateGuidedStoryDraftBodyAudioChoicesOneItemsItemStartSecondsMin).max(updateGuidedStoryDraftBodyAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(updateGuidedStoryDraftBodyAudioChoicesOneItemsItemEndSecondsMin).max(updateGuidedStoryDraftBodyAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(updateGuidedStoryDraftBodyAudioChoicesOneItemsItemVolumeMin).max(updateGuidedStoryDraftBodyAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(updateGuidedStoryDraftBodyAudioChoicesOneItemsMax)
+}),zod.null()]).optional().describe('Music \/ voiceover \/ sound-effect placement. Never invalidates cast or backdrop approvals; null clears it.')
 })
+
+export const updateGuidedStoryDraftResponseSetupOneOneCustomToneMax = 200;
+
+export const updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const updateGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const updateGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const updateGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin = 2;
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
 
 export const updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
@@ -17831,6 +18262,8 @@ export const updateGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const updateGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const updateGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -17845,6 +18278,8 @@ export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptS
 
 
 export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17867,6 +18302,17 @@ export const updateGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverrid
 export const updateGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const updateGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const updateGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const updateGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const updateGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const updateGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const updateGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const updateGuidedStoryDraftResponseAudioChoicesOneItemsMax = 12;
+
 export const updateGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
 export const updateGuidedStoryDraftResponseEstimatesCastAssetUnitsMin = 0;
@@ -17888,7 +18334,26 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(updateGuidedStoryDraftResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax)).max(updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax)).max(updateGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(updateGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(updateGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(updateGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(updateGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin).max(updateGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(updateGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(updateGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(updateGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(updateGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(updateGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(updateGuidedStoryDraftResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneLocaleMin).max(updateGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -17919,6 +18384,27 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -17936,7 +18422,8 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(updateGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -17945,6 +18432,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18041,7 +18529,8 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -18050,6 +18539,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18162,6 +18652,23 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(updateGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin).max(updateGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(updateGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin).max(updateGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(updateGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin).max(updateGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(updateGuidedStoryDraftResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(updateGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -18191,6 +18698,39 @@ export const GenerateGuidedStoryDraftScriptBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+export const generateGuidedStoryDraftScriptResponseSetupOneOneCustomToneMax = 200;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMin = 2;
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsMax = 12;
+
 export const generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin = 15;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -18210,6 +18750,8 @@ export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -18224,6 +18766,8 @@ export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResul
 
 
 export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18246,6 +18790,17 @@ export const generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsScen
 export const generateGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsMax = 12;
+
 export const generateGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin = 0;
 
 export const generateGuidedStoryDraftScriptResponseEstimatesCastAssetUnitsMin = 0;
@@ -18267,7 +18822,26 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowItemMax)).max(generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayItemMax)).max(generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(generateGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(generateGuidedStoryDraftScriptResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -18298,6 +18872,27 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -18315,7 +18910,8 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(generateGuidedStoryDraftScriptResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -18324,6 +18920,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18420,7 +19017,8 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -18429,6 +19027,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18541,6 +19140,23 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMin).max(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMin).max(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMin).max(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(generateGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin),
@@ -18580,6 +19196,39 @@ export const RefreshGuidedStoryLineTranslationBody = zod.object({
   "sourceText": zod.string().min(1).max(refreshGuidedStoryLineTranslationBodySourceTextMax)
 })
 
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneCustomToneMax = 200;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemHandleMin = 2;
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsMax = 12;
+
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMin = 15;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -18599,6 +19248,8 @@ export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemStartMs
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -18613,6 +19264,8 @@ export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationRe
 
 
 export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18635,6 +19288,17 @@ export const refreshGuidedStoryLineTranslationResponseVisualChoicesOneBackdropsS
 export const refreshGuidedStoryLineTranslationResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsMax = 12;
+
 export const refreshGuidedStoryLineTranslationResponseEstimatesScriptUnitsMin = 0;
 
 export const refreshGuidedStoryLineTranslationResponseEstimatesCastAssetUnitsMin = 0;
@@ -18656,7 +19320,26 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustShowItemMax)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustSayItemMax)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemHandleMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -18687,6 +19370,27 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -18704,7 +19408,8 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(refreshGuidedStoryLineTranslationResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -18713,6 +19418,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18809,7 +19515,8 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -18818,6 +19525,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18930,6 +19638,23 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemStartSecondsMin).max(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemEndSecondsMin).max(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemVolumeMin).max(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(refreshGuidedStoryLineTranslationResponseEstimatesScriptUnitsMin),
@@ -18967,6 +19692,8 @@ export const generateGuidedStoryDraftSceneBodyScriptScenesItemStartMsMin = 0;
 
 export const generateGuidedStoryDraftSceneBodyScriptScenesItemProductIdsMax = 2;
 
+export const generateGuidedStoryDraftSceneBodyScriptScenesItemReferenceIdsMax = 3;
+
 export const generateGuidedStoryDraftSceneBodyScriptScenesItemLinesItemStartMsMin = 0;
 
 
@@ -18986,7 +19713,8 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(generateGuidedStoryDraftSceneBodyScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -18995,6 +19723,7 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19017,6 +19746,8 @@ export const generateGuidedStoryDraftSceneResponseScriptScenesItemStartMsMin = 0
 
 export const generateGuidedStoryDraftSceneResponseScriptScenesItemProductIdsMax = 2;
 
+export const generateGuidedStoryDraftSceneResponseScriptScenesItemReferenceIdsMax = 3;
+
 export const generateGuidedStoryDraftSceneResponseScriptScenesItemLinesItemStartMsMin = 0;
 
 
@@ -19035,7 +19766,8 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(generateGuidedStoryDraftSceneResponseScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -19044,6 +19776,7 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19074,6 +19807,39 @@ export const ApproveGuidedStoryDraftScriptBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+export const approveGuidedStoryDraftScriptResponseSetupOneOneCustomToneMax = 200;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMin = 2;
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsMax = 12;
+
 export const approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin = 15;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -19093,6 +19859,8 @@ export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin 
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -19107,6 +19875,8 @@ export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResult
 
 
 export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19129,6 +19899,17 @@ export const approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsScene
 export const approveGuidedStoryDraftScriptResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsMax = 12;
+
 export const approveGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin = 0;
 
 export const approveGuidedStoryDraftScriptResponseEstimatesCastAssetUnitsMin = 0;
@@ -19150,7 +19931,26 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowItemMax)).max(approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayItemMax)).max(approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(approveGuidedStoryDraftScriptResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(approveGuidedStoryDraftScriptResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -19181,6 +19981,27 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -19198,7 +20019,8 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(approveGuidedStoryDraftScriptResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -19207,6 +20029,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19303,7 +20126,8 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -19312,6 +20136,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19424,6 +20249,23 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMin).max(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMin).max(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMin).max(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(approveGuidedStoryDraftScriptResponseEstimatesScriptUnitsMin),
@@ -19468,6 +20310,39 @@ export const CastGuidedStoryDraftBody = zod.object({
 })).min(1).max(castGuidedStoryDraftBodyAssignmentsMax)
 })
 
+export const castGuidedStoryDraftResponseSetupOneOneCustomToneMax = 200;
+
+export const castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const castGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const castGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const castGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin = 2;
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const castGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
+
 export const castGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const castGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -19487,6 +20362,8 @@ export const castGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const castGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const castGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const castGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -19501,6 +20378,8 @@ export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptSce
 
 
 export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19523,6 +20402,17 @@ export const castGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverrides
 export const castGuidedStoryDraftResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const castGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const castGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const castGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const castGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const castGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const castGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const castGuidedStoryDraftResponseAudioChoicesOneItemsMax = 12;
+
 export const castGuidedStoryDraftResponseEstimatesScriptUnitsMin = 0;
 
 export const castGuidedStoryDraftResponseEstimatesCastAssetUnitsMin = 0;
@@ -19544,7 +20434,26 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(castGuidedStoryDraftResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowItemMax)).max(castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayItemMax)).max(castGuidedStoryDraftResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(castGuidedStoryDraftResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(castGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(castGuidedStoryDraftResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(castGuidedStoryDraftResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(castGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMin).max(castGuidedStoryDraftResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(castGuidedStoryDraftResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(castGuidedStoryDraftResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(castGuidedStoryDraftResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(castGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(castGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(castGuidedStoryDraftResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(castGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(castGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(castGuidedStoryDraftResponseSetupOneOneLocaleMin).max(castGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -19575,6 +20484,27 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -19592,7 +20522,8 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(castGuidedStoryDraftResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -19601,6 +20532,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19697,7 +20629,8 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -19706,6 +20639,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19818,6 +20752,23 @@ export const CastGuidedStoryDraftResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(castGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMin).max(castGuidedStoryDraftResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(castGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMin).max(castGuidedStoryDraftResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(castGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMin).max(castGuidedStoryDraftResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(castGuidedStoryDraftResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(castGuidedStoryDraftResponseEstimatesScriptUnitsMin),
@@ -19849,6 +20800,39 @@ export const ApproveGuidedStoryCastRoleBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+export const approveGuidedStoryCastRoleResponseSetupOneOneCustomToneMax = 200;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemHandleMin = 2;
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsMax = 12;
+
 export const approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMin = 15;
 export const approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -19868,6 +20852,8 @@ export const approveGuidedStoryCastRoleResponseScriptOneScenesItemStartMsMin = 0
 
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const approveGuidedStoryCastRoleResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -19882,6 +20868,8 @@ export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScr
 
 
 export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19904,6 +20892,17 @@ export const approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsSceneOve
 export const approveGuidedStoryCastRoleResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const approveGuidedStoryCastRoleResponseAudioChoicesOneItemsMax = 12;
+
 export const approveGuidedStoryCastRoleResponseEstimatesScriptUnitsMin = 0;
 
 export const approveGuidedStoryCastRoleResponseEstimatesCastAssetUnitsMin = 0;
@@ -19925,7 +20924,26 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustShowItemMax)).max(approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustSayItemMax)).max(approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(approveGuidedStoryCastRoleResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemHandleMin).max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(approveGuidedStoryCastRoleResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(approveGuidedStoryCastRoleResponseSetupOneOneLocaleMin).max(approveGuidedStoryCastRoleResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -19956,6 +20974,27 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -19973,7 +21012,8 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(approveGuidedStoryCastRoleResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -19982,6 +21022,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20078,7 +21119,8 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -20087,6 +21129,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20199,6 +21242,23 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemStartSecondsMin).max(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemEndSecondsMin).max(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemVolumeMin).max(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(approveGuidedStoryCastRoleResponseEstimatesScriptUnitsMin),
@@ -20245,6 +21305,39 @@ export const CustomizeGuidedStoryGeneratedCastRoleBody = zod.object({
   "ethnicity": zod.string().min(customizeGuidedStoryGeneratedCastRoleBodyEthnicityMin).max(customizeGuidedStoryGeneratedCastRoleBodyEthnicityMax).optional()
 })
 
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneCustomToneMax = 200;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemHandleMin = 2;
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsMax = 12;
+
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMin = 15;
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -20264,6 +21357,8 @@ export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemSta
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -20278,6 +21373,8 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerati
 
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -20300,6 +21397,17 @@ export const customizeGuidedStoryGeneratedCastRoleResponseVisualChoicesOneBackdr
 export const customizeGuidedStoryGeneratedCastRoleResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsMax = 12;
+
 export const customizeGuidedStoryGeneratedCastRoleResponseEstimatesScriptUnitsMin = 0;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseEstimatesCastAssetUnitsMin = 0;
@@ -20321,7 +21429,26 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustShowItemMax)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustSayItemMax)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemHandleMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -20352,6 +21479,27 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -20369,7 +21517,8 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -20378,6 +21527,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20474,7 +21624,8 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -20483,6 +21634,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20595,6 +21747,23 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemStartSecondsMin).max(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemEndSecondsMin).max(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemVolumeMin).max(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseEstimatesScriptUnitsMin),
@@ -20626,6 +21795,39 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneCustomToneMax = 200;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemHandleMin = 2;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsMax = 12;
+
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMin = 15;
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -20645,6 +21847,8 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesI
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -20659,6 +21863,8 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGe
 
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -20681,6 +21887,17 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseVisualChoicesOne
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsMax = 12;
+
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseEstimatesScriptUnitsMin = 0;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseEstimatesCastAssetUnitsMin = 0;
@@ -20702,7 +21919,26 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustShowItemMax)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustSayItemMax)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemHandleMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocaleMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -20733,6 +21969,27 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -20750,7 +22007,8 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -20759,6 +22017,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20855,7 +22114,8 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -20864,6 +22124,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20976,6 +22237,23 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemStartSecondsMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemEndSecondsMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemVolumeMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseEstimatesScriptUnitsMin),
@@ -21099,6 +22377,39 @@ export const PrepareGuidedStoryBackdropBody = zod.object({
   "sceneIds": zod.array(zod.string().min(prepareGuidedStoryBackdropBodySceneIdsItemMin).max(prepareGuidedStoryBackdropBodySceneIdsItemMax)).min(1).max(prepareGuidedStoryBackdropBodySceneIdsMax).optional().describe('Legacy shared-default input; ignored when sceneId is present.')
 })
 
+export const prepareGuidedStoryBackdropResponseSetupOneOneCustomToneMax = 200;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMin = 2;
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsMax = 12;
+
 export const prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
 export const prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -21118,6 +22429,8 @@ export const prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const prepareGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -21132,6 +22445,8 @@ export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScr
 
 
 export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21154,6 +22469,17 @@ export const prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOve
 export const prepareGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const prepareGuidedStoryBackdropResponseAudioChoicesOneItemsMax = 12;
+
 export const prepareGuidedStoryBackdropResponseEstimatesScriptUnitsMin = 0;
 
 export const prepareGuidedStoryBackdropResponseEstimatesCastAssetUnitsMin = 0;
@@ -21175,7 +22501,26 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowItemMax)).max(prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayItemMax)).max(prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(prepareGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMin).max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(prepareGuidedStoryBackdropResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin).max(prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(prepareGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -21206,6 +22551,27 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -21223,7 +22589,8 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(prepareGuidedStoryBackdropResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -21232,6 +22599,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21328,7 +22696,8 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -21337,6 +22706,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21449,6 +22819,23 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMin).max(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMin).max(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMin).max(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(prepareGuidedStoryBackdropResponseEstimatesScriptUnitsMin),
@@ -21486,6 +22873,39 @@ export const ApproveGuidedStoryBackdropBody = zod.object({
   "sceneId": zod.string().min(approveGuidedStoryBackdropBodySceneIdMin).max(approveGuidedStoryBackdropBodySceneIdMax).nullish()
 })
 
+export const approveGuidedStoryBackdropResponseSetupOneOneCustomToneMax = 200;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMin = 2;
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsMax = 12;
+
 export const approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
 export const approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -21505,6 +22925,8 @@ export const approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0
 
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const approveGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -21519,6 +22941,8 @@ export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScr
 
 
 export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21541,6 +22965,17 @@ export const approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOve
 export const approveGuidedStoryBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const approveGuidedStoryBackdropResponseAudioChoicesOneItemsMax = 12;
+
 export const approveGuidedStoryBackdropResponseEstimatesScriptUnitsMin = 0;
 
 export const approveGuidedStoryBackdropResponseEstimatesCastAssetUnitsMin = 0;
@@ -21562,7 +22997,26 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowItemMax)).max(approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayItemMax)).max(approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(approveGuidedStoryBackdropResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMin).max(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(approveGuidedStoryBackdropResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(approveGuidedStoryBackdropResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(approveGuidedStoryBackdropResponseSetupOneOneLocaleMin).max(approveGuidedStoryBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -21593,6 +23047,27 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -21610,7 +23085,8 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(approveGuidedStoryBackdropResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -21619,6 +23095,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21715,7 +23192,8 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -21724,6 +23202,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21836,6 +23315,23 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMin).max(approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMin).max(approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMin).max(approveGuidedStoryBackdropResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(approveGuidedStoryBackdropResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(approveGuidedStoryBackdropResponseEstimatesScriptUnitsMin),
@@ -21866,6 +23362,39 @@ export const InheritGuidedStoryDefaultBackdropBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneCustomToneMax = 200;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemHandleMin = 2;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsMax = 12;
+
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMin = 15;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -21885,6 +23414,8 @@ export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMs
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -21899,6 +23430,8 @@ export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationRe
 
 
 export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21921,6 +23454,17 @@ export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsS
 export const inheritGuidedStoryDefaultBackdropResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsMax = 12;
+
 export const inheritGuidedStoryDefaultBackdropResponseEstimatesScriptUnitsMin = 0;
 
 export const inheritGuidedStoryDefaultBackdropResponseEstimatesCastAssetUnitsMin = 0;
@@ -21942,7 +23486,26 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustShowItemMax)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustSayItemMax)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemHandleMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -21973,6 +23536,27 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -21990,7 +23574,8 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -21999,6 +23584,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22095,7 +23681,8 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -22104,6 +23691,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22216,6 +23804,23 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemStartSecondsMin).max(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemEndSecondsMin).max(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemVolumeMin).max(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(inheritGuidedStoryDefaultBackdropResponseEstimatesScriptUnitsMin),
@@ -22246,6 +23851,39 @@ export const FinalizeGuidedStoryReferenceBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+export const finalizeGuidedStoryReferenceResponseSetupOneOneCustomToneMax = 200;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMin = 2;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsMax = 12;
+
 export const finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin = 15;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -22265,6 +23903,8 @@ export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin =
 
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -22279,6 +23919,8 @@ export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultS
 
 
 export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -22301,6 +23943,17 @@ export const finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneO
 export const finalizeGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsMax = 12;
+
 export const finalizeGuidedStoryReferenceResponseEstimatesScriptUnitsMin = 0;
 
 export const finalizeGuidedStoryReferenceResponseEstimatesCastAssetUnitsMin = 0;
@@ -22322,7 +23975,26 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowItemMax)).max(finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayItemMax)).max(finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(finalizeGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(finalizeGuidedStoryReferenceResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -22353,6 +24025,27 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -22370,7 +24063,8 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(finalizeGuidedStoryReferenceResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -22379,6 +24073,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22475,7 +24170,8 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -22484,6 +24180,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22596,6 +24293,23 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMin).max(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMin).max(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMin).max(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(finalizeGuidedStoryReferenceResponseEstimatesScriptUnitsMin),
@@ -22626,6 +24340,39 @@ export const RejectGuidedStoryReferenceBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+export const rejectGuidedStoryReferenceResponseSetupOneOneCustomToneMax = 200;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowItemMax = 120;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowMax = 8;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayItemMax = 160;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayMax = 6;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneCallToActionMax = 160;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsItemMax = 60;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsMax = 40;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemPathMax = 512;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMin = 2;
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMax = 40;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemLabelMax = 120;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemNotesMax = 400;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemAiDescriptionMax = 900;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemTranscriptMax = 4000;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemVoiceForMax = 64;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsMax = 12;
+
 export const rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin = 15;
 export const rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax = 300;
 
@@ -22645,6 +24392,8 @@ export const rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0
 
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax = 2;
 
+export const rejectGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax = 3;
+
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
 
@@ -22659,6 +24408,8 @@ export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScr
 
 
 export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
+
+export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
 
 export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -22681,6 +24432,17 @@ export const rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOve
 export const rejectGuidedStoryReferenceResponseVisualChoicesOneBackdropsSceneOverridesImageSha256Max = 64;
 
 
+export const rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMin = 0;
+export const rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMax = 600;
+
+export const rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMin = 0;
+export const rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMax = 600;
+
+export const rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMin = 0;
+export const rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMax = 1.5;
+
+export const rejectGuidedStoryReferenceResponseAudioChoicesOneItemsMax = 12;
+
 export const rejectGuidedStoryReferenceResponseEstimatesScriptUnitsMin = 0;
 
 export const rejectGuidedStoryReferenceResponseEstimatesCastAssetUnitsMin = 0;
@@ -22702,7 +24464,26 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "revision": zod.number(),
   "version": zod.number(),
   "setup": zod.union([zod.object({
-  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
+  "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction', 'slice_of_life', 'problem_solution', 'customer_story', 'heartwarming', 'inspirational', 'explainer', 'mythological_period', 'satire_parody', 'custom']),
+  "customTone": zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneCustomToneMax).nullish().describe('Required for the custom genre (3-200 characters); ignored otherwise.'),
+  "category": zod.enum(['general', 'medical', 'chartered_accountant']).optional().describe('Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it.\n'),
+  "requirements": zod.union([zod.object({
+  "mustShow": zod.array(zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowItemMax)).max(rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustShowMax).optional(),
+  "mustSay": zod.array(zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayItemMax)).max(rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneMustSayMax).optional(),
+  "callToAction": zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneCallToActionMax).nullish(),
+  "bannedWords": zod.array(zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsItemMax)).max(rejectGuidedStoryReferenceResponseSetupOneOneRequirementsOneBannedWordsMax).optional().describe('Only kept for medical or CA videos.')
+}),zod.null()]).optional(),
+  "uploads": zod.array(zod.object({
+  "path": zod.string().min(1).max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemPathMax).describe('Canonical tenant-owned upload path.'),
+  "handle": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMin).max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemHandleMax),
+  "label": zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemLabelMax).nullish(),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "notes": zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemNotesMax).nullish(),
+  "aiDescription": zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemAiDescriptionMax).nullish(),
+  "transcript": zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemTranscriptMax).nullish(),
+  "voiceFor": zod.string().max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemVoiceForMax).nullish().describe('For a voice upload, the @handle of the character upload (or a script role id) it voices.'),
+  "rightsConfirmed": zod.boolean().nullish().describe('Required true for voice, voiceover, music and footage uploads.')
+})).max(rejectGuidedStoryReferenceResponseSetupOneOneUploadsMax).optional().describe('Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.\n'),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
   "locale": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
@@ -22733,6 +24514,27 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "imageSha256": zod.string(),
   "mimeType": zod.string()
 }))
+}),zod.null()]).optional(),
+  "references": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "handle": zod.string(),
+  "label": zod.string(),
+  "media": zod.enum(['image', 'video', 'audio', 'document']),
+  "use": zod.enum(['character', 'outfit', 'product', 'backdrop', 'prop', 'style', 'logo', 'opening_shot', 'closing_shot', 'other_image', 'motion', 'footage', 'voice', 'music', 'voiceover', 'sfx', 'brief']),
+  "path": zod.string(),
+  "sha256": zod.string(),
+  "mimeType": zod.string(),
+  "byteLength": zod.number(),
+  "durationSeconds": zod.number().nullable(),
+  "notes": zod.string(),
+  "aiDescription": zod.string().nullable(),
+  "transcript": zod.string().nullable(),
+  "documentText": zod.string().nullable(),
+  "voiceFor": zod.string().nullable(),
+  "rightsConfirmed": zod.boolean()
+}))
 }),zod.null()]).optional()
 })),zod.null()]),
   "imageModelSnapshot": zod.object({
@@ -22750,7 +24552,8 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(rejectGuidedStoryReferenceResponseScriptOneRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -22759,6 +24562,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22855,7 +24659,8 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "roles": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string()
+  "description": zod.string(),
+  "referenceId": zod.string().optional().describe('Story upload id (setup.references.items[].id) of the character upload that casts this role.')
 })).min(1).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptRolesMax).describe('Story-decided cast. The upper bound is only a malformed-output sanity guard.'),
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -22864,6 +24669,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22976,6 +24782,23 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
 }).and(zod.object({
   "version": zod.number()
 })),
+  "audioChoices": zod.union([zod.object({
+  "version": zod.number(),
+  "items": zod.array(zod.object({
+  "referenceId": zod.string(),
+  "sceneId": zod.string().nullable().describe('Anchor scene; startSeconds\/endSeconds are then offsets from its start.'),
+  "startSeconds": zod.number().min(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMin).max(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemStartSecondsMax),
+  "endSeconds": zod.number().min(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMin).max(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemEndSecondsMax).nullable(),
+  "volume": zod.number().min(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMin).max(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsItemVolumeMax),
+  "duckUnderSpeech": zod.boolean(),
+  "replaceGeneratedAudio": zod.boolean()
+})).max(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsMax)
+}),zod.null()]).optional(),
+  "requirementChecks": zod.array(zod.object({
+  "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
+  "text": zod.string(),
+  "met": zod.boolean()
+})).optional().describe('The script\'s requirement checklist (what must be shown, said and used). Never blocks approval.'),
   "storyboardJobId": zod.number().nullable(),
   "estimates": zod.object({
   "scriptUnits": zod.number().min(rejectGuidedStoryReferenceResponseEstimatesScriptUnitsMin),

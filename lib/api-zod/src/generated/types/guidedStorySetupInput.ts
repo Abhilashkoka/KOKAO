@@ -6,11 +6,28 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GuidedStoryProductSelectionInput } from './guidedStoryProductSelectionInput';
+import type { GuidedStoryRequirementsInput } from './guidedStoryRequirementsInput';
+import type { GuidedStorySetupInputCategory } from './guidedStorySetupInputCategory';
 import type { GuidedStorySetupInputGenre } from './guidedStorySetupInputGenre';
 import type { GuidedStorySetupInputPlatform } from './guidedStorySetupInputPlatform';
+import type { GuidedStoryUploadInput } from './guidedStoryUploadInput';
 
 export interface GuidedStorySetupInput {
   genre: GuidedStorySetupInputGenre;
+  /**
+     * Required for the custom genre (3-200 characters); ignored otherwise.
+     * @maxLength 200
+     * @nullable
+     */
+  customTone?: string | null;
+  /** Whether NMC (medical) or ICAI (CA) advertising rules and the banned-words list apply. A Brand Kit already set to a regulated profession always keeps it. */
+  category?: GuidedStorySetupInputCategory;
+  requirements?: GuidedStoryRequirementsInput | null;
+  /**
+     * Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.
+     * @maxItems 12
+     */
+  uploads?: GuidedStoryUploadInput[];
   platform: GuidedStorySetupInputPlatform;
   /**
      * @minimum 15

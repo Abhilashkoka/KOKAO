@@ -10,4 +10,6 @@ export interface GuidedStoryRole {
   id: string;
   name: string;
   description: string;
+  /** Story upload id (setup.references.items[].id) of the character upload that casts this role. */
+  referenceId?: string;
 }

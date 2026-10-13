@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GuidedStoryProductChoices } from './guidedStoryProductChoices';
+import type { GuidedStoryReferenceLibrary } from './guidedStoryReferenceLibrary';
 import type { GuidedStorySetupAspectRatio } from './guidedStorySetupAspectRatio';
 import type { GuidedStorySetupInput } from './guidedStorySetupInput';
 
@@ -15,4 +16,5 @@ export type GuidedStorySetup = GuidedStorySetupInput & ({
   height: number;
   safeArea: string;
   products?: GuidedStoryProductChoices | null;
+  references?: GuidedStoryReferenceLibrary | null;
 });

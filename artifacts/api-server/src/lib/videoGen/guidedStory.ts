@@ -6,6 +6,8 @@ import type {
   GuidedStoryLocale,
   GuidedStoryPlatform,
   GuidedStoryProductChoices,
+  GuidedStoryReferenceLibrary,
+  GuidedStoryRequirements,
   GuidedStoryScript,
   GuidedStoryVisualChoices,
   GuidedStoryBackdropChoices,
@@ -25,6 +27,15 @@ import { VideoGenProviderError } from "./types";
 import { isAtlasGenerationReferenceId } from "../atlascloud/assetId";
 import { isAtlasReferenceModel, isAtlasWanReferenceModel } from "./providers/atlascloud";
 import type { MeterContext } from "../meter";
+import {
+  guidedReferenceScriptBrief,
+  guidedRequirementsScriptBrief,
+  guidedRoleReferenceId,
+  guidedScenePhotoReferences,
+  guidedSceneReferenceIds,
+  guidedSceneReferences,
+  sanitizeGuidedScriptReferences,
+} from "./guidedReferences";
 
 export const GUIDED_STORY_GENRES: readonly GuidedStoryGenre[] = [
   "action_adventure",
@@ -34,7 +45,48 @@ export const GUIDED_STORY_GENRES: readonly GuidedStoryGenre[] = [
   "thriller_mystery",
   "fantasy",
   "science_fiction",
+  "slice_of_life",
+  "problem_solution",
+  "customer_story",
+  "heartwarming",
+  "inspirational",
+  "explainer",
+  "mythological_period",
+  "satire_parody",
+  "custom",
 ];
+
+/**
+ * What each genre asks of the screenplay. Genres set tone and structure only;
+ * any product or service can be promoted in any of them.
+ */
+export const GUIDED_STORY_GENRE_BRIEFS: Record<GuidedStoryGenre, string> = {
+  action_adventure: "Action / Adventure: high stakes, motion and a daring goal.",
+  comedy: "Comedy: a character-led setup with a satisfying comic turn.",
+  drama: "Drama: human choices, emotional stakes and consequence.",
+  romance: "Romance: connection, vulnerability and a hopeful beat.",
+  thriller_mystery: "Thriller / Mystery: clues, tension and a reveal.",
+  fantasy: "Fantasy: an original world with wonder and clear rules.",
+  science_fiction: "Science Fiction: a future-facing idea grounded in people.",
+  slice_of_life: "Slice of Life: an ordinary, recognisable day — home, shop, office, clinic — told with warmth and small authentic details.",
+  problem_solution: "Problem → Solution: open on a relatable pain point, show the discovery, end on visible relief and the result.",
+  customer_story: "Customer Story / Transformation: a fictional customer's before-and-after journey told in their own voice. Never present it as a real testimonial or invent statistics.",
+  heartwarming: "Heartwarming / Family: an emotional, festive or family moment the brand is quietly part of.",
+  inspirational: "Inspirational: a founder's, professional's or customer's journey to a meaningful goal, uplifting and sincere.",
+  explainer: "Explainer: teach one useful idea in clear, simple steps with on-screen demonstration.",
+  mythological_period: "Mythological / Period: a respectful retelling set in a historical or mythological world, linking a timeless value to the brand. Avoid depicting deities disrespectfully.",
+  satire_parody: "Satire / Parody: a playful, shareable exaggeration of an everyday situation. Punch at situations, never at groups of people or real persons.",
+  custom: "Custom tone: follow the tone described below.",
+};
+
+/** Human-readable genre for prompts, including a custom tone when chosen. */
+export function guidedGenreText(genre: GuidedStoryGenre, customTone?: string | null): string {
+  if (genre === "custom") {
+    const tone = (customTone ?? "").replace(/\s+/g, " ").trim();
+    return tone ? `Custom tone (owner's words, data): "${tone}"` : "Custom tone";
+  }
+  return GUIDED_STORY_GENRE_BRIEFS[genre].split(":")[0]!;
+}
 
 type GuidedStoryLanguage = {
   locale: GuidedStoryLocale;
@@ -286,6 +338,8 @@ export async function governedGuidedCastPrompt(params: {
   tenantId: number;
   role: { id: string; name: string; description: string };
   genre: GuidedStoryGenre;
+  /** Owner's words for the custom genre. */
+  customTone?: string | null;
   /**
    * Retained as an optional compatibility field for older callers. Scene
    * directions are deliberately never used for portrait context: they contain
@@ -303,7 +357,7 @@ export async function governedGuidedCastPrompt(params: {
   const runtimeContext = [
     `Create one wholly fictional, non-identifiable performer for role ${params.role.id}.`,
     `Role: ${params.role.name}. ${params.role.description}`,
-    `Genre: ${params.genre}.`,
+    `Genre: ${guidedGenreText(params.genre, params.customTone)}.`,
     "Create a full-body neutral reference portrait with an original face and a complete genre-appropriate outfit. Do not depict or imitate a real person.",
     "This must be a photorealistic production photograph with natural skin texture, anatomically realistic features, realistic fabric construction and neutral studio lighting. No cartoon, comic-book, illustration, anime, cel-shaded, 3D-render, game-art or concept-art look.",
   ].join("\n");
@@ -1228,8 +1282,10 @@ export function guidedStoryStoryboard(
       ? sceneBackdrop
       : null;
     const sceneProducts = guidedSceneProducts(snapshot.products, scriptScene.productIds);
+    const sceneReferences = guidedSceneReferences(snapshot.references, scriptScene.referenceIds);
     const sceneVisuals = {
       ...(sceneProducts.length ? { products: sceneProducts } : {}),
+      ...(sceneReferences.length ? { references: sceneReferences } : {}),
       logoPath: showLogo ? visuals.logo.path : null,
       locationMode: visuals.location.mode,
       locationImagePath:
@@ -1298,6 +1354,13 @@ export function guidedStoryStoryboard(
             (_product, index) => `@Image${atlasReferenceLabels.length + index + 1}`,
           )
         : undefined;
+    // Upload images follow the products in the same attachment order.
+    const uploadReferenceLabels = productReferenceLabels
+      ? guidedScenePhotoReferences(sceneReferences).map(
+          (_reference, index) =>
+            `@Image${atlasReferenceLabels!.length + productReferenceLabels.length + index + 1}`,
+        )
+      : undefined;
     return {
       id: scriptScene.id,
       text: scriptScene.lines.map((line) => line.text).join(" "),
@@ -1316,6 +1379,12 @@ export function guidedStoryStoryboard(
           ? {
               products: sceneProducts,
               ...(productReferenceLabels ? { productReferenceLabels } : {}),
+            }
+          : {}),
+        ...(sceneReferences.length
+          ? {
+              references: sceneReferences,
+              ...(uploadReferenceLabels?.length ? { uploadReferenceLabels } : {}),
             }
           : {}),
       }),
@@ -1586,7 +1655,8 @@ export function validateAndRepairGuidedScript(
     const name = text(item.name, 80);
     const description = text(item.description, 500);
     if (!name || !description) throw new VideoGenProviderError(`Role ${index + 1} needs a name and description.`);
-    return { id, name, description };
+    const referenceId = guidedRoleReferenceId(item.referenceId);
+    return { id, name, description, ...(referenceId ? { referenceId } : {}) };
   });
   if (!Array.isArray(raw.scenes) || raw.scenes.length === 0 || raw.scenes.length > 40) {
     throw new VideoGenProviderError("The script must contain 1-40 scenes.");
@@ -1664,6 +1734,7 @@ export function validateAndRepairGuidedScript(
       throw new VideoGenProviderError(`Scene ${sceneIndex + 1} has invalid visible role ownership.`);
     }
     const productIds = guidedSceneProductIds(item.productIds);
+    const referenceIds = guidedSceneReferenceIds(item.referenceIds);
     return {
       id,
       startMs,
@@ -1671,6 +1742,7 @@ export function validateAndRepairGuidedScript(
       visualDirection,
       roleIds: visibleRoleIds,
       ...(productIds.length ? { productIds } : {}),
+      ...(referenceIds.length ? { referenceIds } : {}),
       lines,
     };
   });
@@ -1736,6 +1808,12 @@ export async function generateGuidedStoryScript(params: {
   brandConstraints: string | null;
   /** Frozen Brand Kit products & services for this draft. */
   products?: GuidedStoryProductChoices | null;
+  /** Owner's words for the custom genre. */
+  customTone?: string | null;
+  /** Frozen user uploads addressable as @handle. */
+  references?: GuidedStoryReferenceLibrary | null;
+  /** What the script must deliver. */
+  requirements?: GuidedStoryRequirements | null;
   /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
   meterContext?: MeterContext | null;
 }) {
@@ -1759,9 +1837,11 @@ export async function generateGuidedStoryScript(params: {
     ? `The selected video model supports scenes up to ${params.maxSceneSeconds} seconds. Prefer the fewest coherent continuous scenes, using most of this duration when the story allows it. Each scene must stay within this limit, finish its sentences, and describe one continuous performance rather than a montage. Keep character appearance, outfit, setting, voice qualities, and eyelines consistent between scenes. Keep the opening hook inside the first scene; do not add a separate short opening merely for pacing.`
     : "";
   const productBrief = guidedProductScriptBrief(params.products);
-  const outputFormat = "Return only JSON with title, logline, warnings, roles[{id,name,description}], scenes[{id,startMs,endMs,visualDirection,roleIds,productIds,lines[{id,ownerRoleId,kind,text,romanizedPronunciation,englishTranslation,startMs,endMs}]}]. roleIds lists every role visibly present; productIds lists the brand product ids shown in the scene (empty when none); kind is dialogue or narration; dialogue ownerRoleId must be a role id. For Hindi, Telugu, and Tamil, romanizedPronunciation must be a faithful, readable Latin-letter pronunciation of text and englishTranslation must be its faithful English meaning; both are display only. For English, use null for both.";
+  const referenceBrief = guidedReferenceScriptBrief(params.references);
+  const requirementsBrief = guidedRequirementsScriptBrief(params.requirements);
+  const outputFormat = "Return only JSON with title, logline, warnings, roles[{id,name,description,referenceId}], scenes[{id,startMs,endMs,visualDirection,roleIds,productIds,referenceIds,lines[{id,ownerRoleId,kind,text,romanizedPronunciation,englishTranslation,startMs,endMs}]}]. roleIds lists every role visibly present; productIds lists the brand product ids shown in the scene (empty when none); referenceIds lists the upload ids used in the scene (empty when none); a role's referenceId is the character upload id that casts it (null otherwise); kind is dialogue or narration; dialogue ownerRoleId must be a role id. For Hindi, Telugu, and Tamil, romanizedPronunciation must be a faithful, readable Latin-letter pronunciation of text and englishTranslation must be its faithful English meaning; both are display only. For English, use null for both.";
   const runtimeContext = [
-    `Genre: ${params.genre}. Topic: ${params.topic}`,
+    `Genre: ${GUIDED_STORY_GENRE_BRIEFS[params.genre]}${params.genre === "custom" ? ` ${guidedGenreText(params.genre, params.customTone)}` : ""} Topic: ${params.topic}`,
     `Locale: ${params.locale}. Platform: ${params.platform.id}, ${params.platform.aspectRatio}, ${params.platform.safeArea}`,
     `Hard duration: ${params.durationSeconds}s.`,
     "Use the smallest complete cast justified by the story. Include every role the story genuinely needs, but never add filler roles.",
@@ -1783,6 +1863,8 @@ export async function generateGuidedStoryScript(params: {
     ].join(" "),
     params.brandConstraints ? `Brand constraints: ${params.brandConstraints}` : null,
     productBrief,
+    referenceBrief,
+    requirementsBrief,
     guidedStoryNativeScriptInstruction(params.locale),
   ].filter(Boolean).join("\n");
   const governed = await getGovernedPrompt({
@@ -1838,7 +1920,7 @@ export async function generateGuidedStoryScript(params: {
           role: "user",
           content: [
             `Rewrite the supplied screenplay JSON so its final timeline is no longer than ${params.durationSeconds} seconds and all spoken text totals at most ${maxSpokenWords} words.`,
-            `Preserve the supplied cast membership, the story's meaning, and locale ${params.locale}; keep valid contiguous millisecond timings. Do not add or remove roles during this timing repair, and keep each scene's productIds.`,
+            `Preserve the supplied cast membership, the story's meaning, and locale ${params.locale}; keep valid contiguous millisecond timings. Do not add or remove roles during this timing repair, and keep each scene's productIds and referenceIds and each role's referenceId.`,
             longScenes ? scenePolicy : "Scene 1 must start at 0ms, last 3-5 seconds, use narration only, and show every opening-hook character together performing concrete hook-relevant actions or expressions that visibly settle, pause, or complete before scene 2. Include every visible opening character in roleIds.",
             "Shorten dialogue and narration naturally; do not truncate words or sentences. Return only the complete replacement JSON in the original schema.",
             outputFormat,
@@ -1872,6 +1954,7 @@ export async function generateGuidedStoryScript(params: {
     sanitizeGuidedScriptProducts(script, params.products),
     params.products,
   );
+  script = sanitizeGuidedScriptReferences(script, params.references);
   const inputTokens =
     (completion.usage?.prompt_tokens ?? 0) +
     (repairCompletion?.usage?.prompt_tokens ?? 0);

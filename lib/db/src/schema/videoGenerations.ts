@@ -1274,6 +1274,10 @@ export interface VideoJobOptions {
     backdrops?: GuidedStoryBackdropChoices;
     /** Frozen Brand Kit products & services; absent on jobs before products. */
     products?: import("./guidedStories").GuidedStoryProductChoices;
+    /** Frozen story uploads (@handles); absent on jobs before references. */
+    references?: import("./guidedStories").GuidedStoryReferenceLibrary;
+    /** Frozen music / voiceover / SFX placement, mixed locally after render. */
+    audioChoices?: import("./guidedStories").GuidedStoryAudioChoices;
   };
   /**
    * Privacy-safe post-render speech QA evidence. Transcript text is
@@ -1401,6 +1405,21 @@ export interface VideoStoryboardScene {
         displayMode: "in_scene" | "exact";
         imagePath: string;
         imageSha256: string;
+      }>;
+      /**
+       * Story image uploads used in this scene (props, style, opening/closing
+       * shot, other), in reference order. Present only when the scene uses at
+       * least one, so legacy fingerprints are stable.
+       */
+      references?: Array<{
+        id: string;
+        handle: string;
+        use: "product" | "prop" | "style" | "opening_shot" | "closing_shot" | "other_image" | "motion";
+        notes: string;
+        aiDescription: string | null;
+        /** Null for video references (motion), which travel as text only. */
+        imagePath: string | null;
+        imageSha256: string | null;
       }>;
     };
     /**

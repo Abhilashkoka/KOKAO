@@ -2,7 +2,8 @@ import { db, tenantsTable, type FrozenJobCompliance, type FrozenSemanticReview, 
 import { eq } from "drizzle-orm";
 import { loadActivePayload } from "../brandKit/service";
 import { resolveSelection } from "../brandKit/selection";
-import { freezeCompliance, resolveCompliance, thawCompliance } from "./profile";
+import { emptyFacts, freezeCompliance, resolveCompliance, thawCompliance } from "./profile";
+import { rulePackFor } from "./rulePacks";
 import { checkCompliance, storyboardComplianceTexts, type ComplianceReport, type ComplianceText } from "./check";
 import { contentFingerprint } from "./gates";
 import { complianceTextConstraints } from "./prompt";
@@ -124,4 +125,49 @@ export async function textComplianceConstraints(
   brandKitId: number | null | undefined,
 ): Promise<string[]> {
   return complianceTextConstraints(thawCompliance(await resolveJobCompliance(tenantId, brandKitId)));
+}
+
+/**
+ * Compliance for one Guided Story.
+ *
+ * KOKAO serves every kind of business, so profession rules are opt-in per
+ * story: the setup asks whether the video is medical or CA-related. A brand
+ * (or workspace) already resolved to a regulated profession always keeps its
+ * rules — the Brand Kit's Compliance tab is the only way to switch them off.
+ * Story banned words apply only to medical / CA stories.
+ */
+export async function resolveGuidedStoryCompliance(
+  tenantId: number,
+  setup: {
+    brandKitId: number | null;
+    category?: "general" | "medical" | "chartered_accountant";
+    requirements?: { bannedWords: string[] } | null;
+  },
+  deps: { resolveBase?: typeof resolveJobCompliance; semanticReview?: () => Promise<boolean> } = {},
+): Promise<FrozenJobCompliance | null> {
+  const base = await (deps.resolveBase ?? resolveJobCompliance)(tenantId, setup.brandKitId ?? null);
+  const banned = setup.category && setup.category !== "general"
+    ? (setup.requirements?.bannedWords ?? [])
+    : [];
+  if (base) {
+    return banned.length
+      ? { ...base, extraNegativeTerms: [...new Set([...base.extraNegativeTerms, ...banned])] }
+      : base;
+  }
+  if (!setup.category || setup.category === "general") return null;
+  const semanticReviewRequired = await (deps.semanticReview ?? (() => isFeatureEnabled("complianceAiReview")))()
+    .catch(() => true);
+  return freezeCompliance(
+    {
+      profession: setup.category,
+      pack: rulePackFor(setup.category),
+      source: "manual",
+      confirmed: false,
+      facts: emptyFacts(),
+      extraNegativeTerms: banned,
+      restrictedTerms: [],
+    },
+    setup.brandKitId ?? null,
+    { semanticReviewRequired },
+  );
 }
