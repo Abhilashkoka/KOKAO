@@ -1689,14 +1689,14 @@ export function validateAndRepairGuidedScript(
       }
       const line = lineEntry as Record<string, unknown>;
       const kind = line.kind === "narration" ? "narration" as const : "dialogue" as const;
-      const ownerRoleId = kind === "narration" && line.ownerRoleId == null
-        ? null
-        : text(line.ownerRoleId, 64);
+      const ownerRoleId = text(line.ownerRoleId, 64) || null;
+      if (kind === "dialogue" && ownerRoleId === null) {
+        throw new VideoGenProviderError(
+          `Scene ${sceneIndex + 1}, line ${lineIndex + 1}: every dialogue line must have a role owner. Choose a character, or mark the line as narration.`,
+        );
+      }
       if (ownerRoleId !== null && !roleIds.has(ownerRoleId)) {
         throw new VideoGenProviderError(`Line ownership references unknown role "${ownerRoleId}".`);
-      }
-      if (kind === "dialogue" && ownerRoleId === null) {
-        throw new VideoGenProviderError("Every dialogue line must have a role owner.");
       }
       const lineStart = integer(line.startMs) ?? priorLineEnd;
       const lineEnd = integer(line.endMs);
@@ -1846,6 +1846,7 @@ export async function generateGuidedStoryScript(params: {
     `Hard duration: ${params.durationSeconds}s.`,
     "Use the smallest complete cast justified by the story. Include every role the story genuinely needs, but never add filler roles.",
     "This story-decided cast policy supersedes any historical fixed-size cast instruction in a governed template.",
+    "Never use an empty ownerRoleId. Use JSON null for ownerless narration; every dialogue line must name an exact role id from roles.",
     `Hard spoken-word maximum: ${maxSpokenWords} total words across every dialogue and narration line. Aim for 70-90% of this budget; never exceed it.`,
     longScenes ? scenePolicy : [
       "Mandatory opening plan: scene 1 starts at 0ms and lasts 3-5 seconds.",

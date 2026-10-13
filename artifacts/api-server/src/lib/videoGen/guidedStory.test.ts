@@ -1451,6 +1451,79 @@ describe("guided story estimates", () => {
 });
 
 describe("guided story script validation", () => {
+  it.each([null, undefined, "", " \t\n "])(
+    "normalizes an empty narration owner (%j) without assigning a character",
+    (ownerRoleId) => {
+      const raw = validRaw();
+      const script = validateAndRepairGuidedScript({
+        ...raw,
+        scenes: [{
+          ...raw.scenes[0]!,
+          lines: [
+            { ...raw.scenes[0]!.lines[0]!, kind: "narration", ownerRoleId },
+            raw.scenes[0]!.lines[1]!,
+          ],
+        }],
+      }, { durationSeconds: 30 });
+      expect(script.scenes[0]!.lines[0]).toMatchObject({
+        kind: "narration",
+        ownerRoleId: null,
+      });
+      expect(script.scenes[0]!.lines[1]!.ownerRoleId).toBe("role-2");
+    },
+  );
+
+  it.each([null, undefined, "", " \t\n "])(
+    "rejects an empty dialogue owner (%j) with an actionable location",
+    (ownerRoleId) => {
+      const raw = validRaw();
+      expect(() => validateAndRepairGuidedScript({
+        ...raw,
+        scenes: [{
+          ...raw.scenes[0]!,
+          lines: [
+            { ...raw.scenes[0]!.lines[0]!, ownerRoleId },
+            raw.scenes[0]!.lines[1]!,
+          ],
+        }],
+      }, { durationSeconds: 30 })).toThrow(
+        "Scene 1, line 1: every dialogue line must have a role owner. Choose a character, or mark the line as narration.",
+      );
+    },
+  );
+
+  it.each(["dialogue", "narration"])(
+    "keeps rejecting nonexistent owners for %s",
+    (kind) => {
+      const raw = validRaw();
+      expect(() => validateAndRepairGuidedScript({
+        ...raw,
+        scenes: [{
+          ...raw.scenes[0]!,
+          lines: [
+            { ...raw.scenes[0]!.lines[0]!, kind, ownerRoleId: "foreign-role" },
+            raw.scenes[0]!.lines[1]!,
+          ],
+        }],
+      }, { durationSeconds: 30 })).toThrow(/unknown role "foreign-role"/);
+    },
+  );
+
+  it("preserves a known character's narration ownership", () => {
+    const raw = validRaw();
+    const script = validateAndRepairGuidedScript({
+      ...raw,
+      scenes: [{
+        ...raw.scenes[0]!,
+        lines: [
+          { ...raw.scenes[0]!.lines[0]!, kind: "narration", ownerRoleId: " role-1 " },
+          raw.scenes[0]!.lines[1]!,
+        ],
+      }],
+    }, { durationSeconds: 30 });
+    expect(script.scenes[0]!.lines[0]!.ownerRoleId).toBe("role-1");
+  });
+
   it("requires the narrated ensemble opening and preserves multi-character dialogue staging", () => {
     const raw: Record<string, any> = validRaw();
     raw.scenes = [
