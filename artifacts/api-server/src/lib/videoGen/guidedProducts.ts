@@ -10,6 +10,7 @@ import {
   readBrandProductImage,
 } from "../brandKit/products";
 import { guidedProductId } from "./guidedStory";
+import { clampHeroShare } from "./productHero";
 import { readReferenceBytes, referenceDigest } from "./topicVideo/referenceImages";
 
 /** A story promotes a handful of things well; more dilutes every scene. */
@@ -18,8 +19,10 @@ export const MAX_GUIDED_STORY_PRODUCTS = 4;
 export class GuidedProductSelectionError extends Error {}
 
 export type GuidedProductSelectionInput = {
-  promotion: "subtle" | "featured";
+  promotion: "subtle" | "featured" | "hero";
   assetIds: number[];
+  /** "hero" only: share of runtime with the product on screen, 0.6–0.8. */
+  heroShare?: number | null;
 };
 
 type Setup = NonNullable<GuidedStoryDraftState["setup"]>;
@@ -66,6 +69,14 @@ export async function freezeGuidedProductSelection(params: {
       }
       throw error;
     }
+    const angles: NonNullable<GuidedStoryProductReference["angles"]> = [];
+    for (const angle of meta.angles ?? []) {
+      const bytes = await readReferenceBytes(angle.path, params.tenantId).catch(() => null);
+      // A missing or replaced angle photo is skipped, never trusted.
+      if (bytes && referenceDigest(bytes) === angle.sha256) {
+        angles.push({ view: angle.view, imagePath: angle.path, imageSha256: angle.sha256, mimeType: angle.mimeType });
+      }
+    }
     items.push({
       id: guidedProductId(row.id),
       assetId: row.id,
@@ -80,9 +91,15 @@ export async function freezeGuidedProductSelection(params: {
       imagePath: row.fileUrl,
       imageSha256: image.sha256,
       mimeType: image.mimeType,
+      ...(angles.length ? { angles } : {}),
     });
   }
-  return { version: 1, promotion: params.selection.promotion, items };
+  return {
+    version: 1,
+    promotion: params.selection.promotion,
+    items,
+    ...(params.selection.promotion === "hero" ? { heroShare: clampHeroShare(params.selection.heroShare) } : {}),
+  };
 }
 
 /**
@@ -114,9 +131,11 @@ export async function assertGuidedProductsUnchanged(
   tenantId: number,
 ): Promise<string | null> {
   for (const item of products?.items ?? []) {
-    const bytes = await readReferenceBytes(item.imagePath, tenantId).catch(() => null);
-    if (!bytes || referenceDigest(bytes) !== item.imageSha256) {
-      return `The image for "${item.name}" changed or was removed after this story was set up. Re-select your products in the story setup.`;
+    for (const photo of [{ imagePath: item.imagePath, imageSha256: item.imageSha256 }, ...(item.angles ?? [])]) {
+      const bytes = await readReferenceBytes(photo.imagePath, tenantId).catch(() => null);
+      if (!bytes || referenceDigest(bytes) !== photo.imageSha256) {
+        return `A photo of "${item.name}" changed or was removed after this story was set up. Re-select your products in the story setup.`;
+      }
     }
   }
   return null;

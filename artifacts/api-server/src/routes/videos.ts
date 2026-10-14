@@ -322,6 +322,13 @@ import {
   type GuidedSetupExtrasInput,
 } from "../lib/videoGen/guidedSetupExtras";
 import {
+  clampHeroShare,
+  isProductHero,
+  productScreenTime,
+  sanitizeShots,
+  withProductHeroWarnings,
+} from "../lib/videoGen/productHero";
+import {
   GuidedAudioChoicesError,
   pruneGuidedAudioChoices,
   validateGuidedAudioChoices,
@@ -2580,6 +2587,13 @@ function serializeGuidedDraft(row: GuidedStoryDraft) {
       row.state.setup && row.state.script
         ? guidedRequirementChecks(row.state.script, row.state.setup)
         : [],
+    productScreenTime:
+      row.state.script && isProductHero(row.state.setup?.products)
+        ? {
+            ...productScreenTime(row.state.script),
+            target: clampHeroShare(row.state.setup!.products!.heroShare),
+          }
+        : null,
     estimates: guidedStoryEstimates(row.state, {
       tenantId: row.tenantId,
       draftId: row.id,
@@ -2905,7 +2919,7 @@ function guidedStorySetupValidationError(
     return "Each upload needs a file, an @name of 2–32 letters, numbers or underscores, and what it is for.";
   }
   if (field === "productSelection") {
-    return "Choose up to 4 Brand Kit products or services and a Subtle or Featured promotion level.";
+    return "Choose up to 4 Brand Kit products or services and a Product hero, Featured or Subtle promotion level (hero screen time 60–80%).";
   }
   if (field === "topic") return "Topic must be between 3 and 6000 characters.";
   if (field === "genre") return GUIDED_GENRE_ERROR;
@@ -5151,6 +5165,7 @@ router.patch(
         sanitizeGuidedScriptReferences(script, setup.references),
         setup,
       );
+      script = withProductHeroWarnings(sanitizeShots(script, setup.products), setup.products);
     }
     let audioChoices = row.state.audioChoices ?? null;
     if (parsed.data.audioChoices !== undefined) {

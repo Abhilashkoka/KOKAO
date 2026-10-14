@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getListBrandProductsQueryKey,
+  useAddBrandProductAngle,
+  useRemoveBrandProductAngle,
   useCreateBrandProduct,
   useDeleteBrandAsset,
   useDescribeBrandProduct,
@@ -9,6 +11,7 @@ import {
   useRequestUploadUrl,
   useUpdateBrandProduct,
   type BrandProduct,
+  type BrandProductAngleView,
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { Button } from "@/components/ui/button";
@@ -16,13 +19,109 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Package, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ImagePlus, Loader2, Package, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const PRODUCT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_PRODUCT_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_GUIDED_STORY_PRODUCTS = 4;
 
 type Kind = "product" | "service";
+export type GuidedPromotion = "hero" | "featured" | "subtle";
+export const MAX_PRODUCT_PHOTOS = 5;
+const ANGLE_LABELS: Array<[Exclude<BrandProductAngleView, "front">, string]> = [
+  ["back", "Back"],
+  ["side", "Side"],
+  ["top", "Top"],
+  ["label", "Label close-up"],
+  ["detail", "Detail"],
+  ["in_use", "In use"],
+  ["packaging", "Packaging"],
+];
+
+/** Extra photos of one product so every shot can show the right side. */
+function ProductAngles({ kitId, product, onError }: { kitId: number; product: BrandProduct; onError: (message: string | null) => void }) {
+  const queryClient = useQueryClient();
+  const requestUploadUrl = useRequestUploadUrl();
+  const add = useAddBrandProductAngle();
+  const remove = useRemoveBrandProductAngle();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [view, setView] = useState<Exclude<BrandProductAngleView, "front">>("back");
+  const [uploading, setUploading] = useState(false);
+  const angles = product.angles ?? [];
+  const full = angles.length + 1 >= MAX_PRODUCT_PHOTOS;
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getListBrandProductsQueryKey(kitId) });
+  const upload = async (file: File | null) => {
+    if (!file) return;
+    onError(null);
+    if (!PRODUCT_IMAGE_TYPES.includes(file.type) || file.size > MAX_PRODUCT_IMAGE_BYTES) {
+      onError("Use a PNG, JPEG or WebP photo up to 10 MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      await add.mutateAsync({ id: kitId, assetId: product.id, data: { imagePath: objectPath, view } });
+      await refresh();
+    } catch (err) {
+      onError(apiErrorMessage(err, "Could not add this photo."));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+  return (
+    <div className="space-y-1.5" data-testid={`product-angles-${product.id}`}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-muted-foreground">Angles ({angles.length + 1}/{MAX_PRODUCT_PHOTOS}):</span>
+        <span className="rounded border px-1.5 py-0.5 text-xs">Front</span>
+        {angles.map((angle) => (
+          <span key={angle.id} className="inline-flex items-center gap-1 rounded border py-0.5 pl-0.5 pr-1 text-xs">
+            <img src={`/api/storage${angle.imagePath}`} alt="" className="h-5 w-5 rounded-sm bg-white object-contain" />
+            {ANGLE_LABELS.find(([id]) => id === angle.view)?.[1] ?? angle.view}
+            <button
+              type="button"
+              aria-label={`Remove ${angle.view} photo`}
+              onClick={() =>
+                remove.mutate(
+                  { id: kitId, assetId: product.id, angleId: angle.id },
+                  { onSuccess: () => void refresh(), onError: (err) => onError(apiErrorMessage(err, "Could not remove this photo.")) },
+                )
+              }
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      {!full && (
+        <div className="flex items-center gap-2">
+          <Select value={view} onValueChange={(next) => setView(next as typeof view)}>
+            <SelectTrigger className="h-7 w-36 text-xs" data-testid={`select-product-angle-${product.id}`}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ANGLE_LABELS.map(([id, label]) => <SelectItem key={id} value={id}>{label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <input ref={fileRef} type="file" accept={PRODUCT_IMAGE_TYPES.join(",")} className="hidden" onChange={(e) => void upload(e.target.files?.[0] ?? null)} data-testid={`input-product-angle-${product.id}`} />
+          <Button type="button" size="sm" variant="outline" className="h-7 text-xs" disabled={uploading || add.isPending} onClick={() => fileRef.current?.click()} data-testid={`button-product-angle-${product.id}`}>
+            {uploading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <ImagePlus className="mr-1 h-3 w-3" />}Add photo
+          </Button>
+        </div>
+      )}
+      {angles.length === 0 && <p className="text-xs text-muted-foreground">Add back, side and label close-up photos so product-hero videos can show every angle accurately.</p>}
+    </div>
+  );
+}
 type DisplayMode = "in_scene" | "exact";
 
 const DISPLAY_MODES: Array<[DisplayMode, string, string]> = [
@@ -155,6 +254,7 @@ function ProductRow({ kitId, product }: { kitId: number; product: BrandProduct }
           </div>
         )}
         <DescriptionStatus product={product} />
+        <ProductAngles kitId={kitId} product={product} onError={setError} />
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedChoice
             value={product.displayMode as DisplayMode}
@@ -377,13 +477,17 @@ export function GuidedProductPicker({
   onSelectedChange,
   promotion,
   onPromotionChange,
+  heroShare = 0.7,
+  onHeroShareChange,
   disabled,
 }: {
   brandKitId: number | null;
   selected: number[];
   onSelectedChange: (next: number[]) => void;
-  promotion: "subtle" | "featured";
-  onPromotionChange: (next: "subtle" | "featured") => void;
+  promotion: GuidedPromotion;
+  onPromotionChange: (next: GuidedPromotion) => void;
+  heroShare?: number;
+  onHeroShareChange?: (next: number) => void;
   disabled?: boolean;
 }) {
   const products = useListBrandProducts(brandKitId ?? 0, {
@@ -416,18 +520,33 @@ export function GuidedProductPicker({
         </div>
         <SegmentedChoice
           value={promotion}
-          options={[["featured", "Featured"], ["subtle", "Subtle"]] as Array<["featured" | "subtle", string]>}
-          onChange={(next: "featured" | "subtle") => onPromotionChange(next)}
+          options={[["hero", "Product hero"], ["featured", "Featured"], ["subtle", "Subtle"]] as Array<[GuidedPromotion, string]>}
+          onChange={(next: GuidedPromotion) => onPromotionChange(next)}
           disabled={disabled || selected.length === 0}
           testId="toggle-guided-promotion"
         />
       </div>
       {selected.length > 0 && (
         <p className="text-xs text-muted-foreground" data-testid="text-guided-promotion-help">
-          {promotion === "featured"
-            ? "Featured: a hero moment for the product and a short call to action at the end."
-            : "Subtle: shown naturally in one or two scenes, no sales pitch."}
+          {promotion === "hero"
+            ? "Product hero: an ad where the product is the star — close-ups, in hand, in use, 360° turns, studio lighting."
+            : promotion === "featured"
+              ? "Featured: a hero moment for the product and a short call to action at the end."
+              : "Subtle: shown naturally in one or two scenes, no sales pitch."}
         </p>
+      )}
+      {selected.length > 0 && promotion === "hero" && onHeroShareChange && (
+        <div className="flex flex-wrap items-center gap-2" data-testid="section-guided-hero-share">
+          <span className="text-xs font-medium">Product on screen:</span>
+          <SegmentedChoice
+            value={String(heroShare)}
+            options={[["0.6", "60%"], ["0.7", "70%"], ["0.8", "80%"]] as Array<[string, string]>}
+            onChange={(next: string) => onHeroShareChange(Number(next))}
+            disabled={disabled}
+            testId="toggle-guided-hero-share"
+          />
+          <span className="text-xs text-muted-foreground">of the video.</span>
+        </div>
       )}
       {products.isLoading ? (
         <p className="text-sm text-muted-foreground">Loading products…</p>

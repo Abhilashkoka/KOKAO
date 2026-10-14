@@ -68,7 +68,8 @@ import {
   CharacterProvenanceRecovery,
   GuidedCharacterProvenanceWarning,
 } from "@/components/character-provenance";
-import { GuidedProductPicker, SceneProductToggles } from "@/components/brand-products";
+import { GuidedProductPicker, SceneProductToggles, type GuidedPromotion } from "@/components/brand-products";
+import { ProductScreenTimeMeter, SceneShotPicker } from "@/components/product-hero";
 import {
   BackdropUploadShortcuts,
   EMPTY_REQUIREMENTS,
@@ -326,7 +327,8 @@ export function GuidedStoryWorkflow({
   const [topic, setTopic] = useState("");
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [productAssetIds, setProductAssetIds] = useState<number[]>([]);
-  const [promotion, setPromotion] = useState<"subtle" | "featured">("featured");
+  const [promotion, setPromotion] = useState<GuidedPromotion>("hero");
+  const [heroShare, setHeroShare] = useState(0.7);
   const [customTone, setCustomTone] = useState("");
   const [category, setCategory] = useState<GuidedStoryCategory | null>(null);
   const [uploads, setUploads] = useState<GuidedUploadDraft[]>([]);
@@ -609,7 +611,8 @@ export function GuidedStoryWorkflow({
     setLocale(draft.setup.locale); setTopic(draft.setup.topic);
     setBrandKitId(draft.setup.brandKitId ?? null);
     setProductAssetIds(draft.setup.products?.items.map((item) => item.assetId) ?? []);
-    setPromotion(draft.setup.products?.promotion ?? "featured");
+    setPromotion(draft.setup.products?.promotion ?? "hero");
+    setHeroShare(draft.setup.products?.heroShare ?? 0.7);
     setCustomTone(draft.setup.customTone ?? "");
     setCategory(draft.setup.category ?? null);
     setUploads(uploadDraftsFromDraft(draft));
@@ -647,7 +650,8 @@ export function GuidedStoryWorkflow({
     setTopic("");
     setBrandKitId(null);
     setProductAssetIds([]);
-    setPromotion("featured");
+    setPromotion("hero");
+    setHeroShare(0.7);
     setCustomTone("");
     setCategory(null);
     setUploads([]);
@@ -885,7 +889,11 @@ export function GuidedStoryWorkflow({
       locale,
       topic: topic.trim(),
       brandKitId,
-      productSelection: { promotion, assetIds: brandKitId === null ? [] : productAssetIds },
+      productSelection: {
+        promotion,
+        assetIds: brandKitId === null ? [] : productAssetIds,
+        ...(promotion === "hero" ? { heroShare } : {}),
+      },
       customTone: genre === "custom" ? customTone.trim() : null,
       category: category ?? undefined,
       requirements: requirementsInput(requirements, category),
@@ -1167,7 +1175,7 @@ export function GuidedStoryWorkflow({
             <div><Label>Publishing platform</Label><Select value={platformId} onValueChange={setPlatformId}><SelectTrigger data-testid="select-guided-platform"><SelectValue placeholder="Choose a platform" /></SelectTrigger><SelectContent>{(platforms.data ?? []).map((item) => <SelectItem key={item.id} value={item.id}>{item.id.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Brand Kit and voice library (optional)</Label><Select value={brandKitId?.toString() ?? ""} onValueChange={(value) => { const next = Number(value); if (next !== brandKitId) setProductAssetIds([]); setBrandKitId(next); }}><SelectTrigger data-testid="select-guided-brand-kit"><SelectValue placeholder="No Brand Kit" /></SelectTrigger><SelectContent>{brandKits.map((kit) => <SelectItem key={kit.id} value={String(kit.id)}>{kit.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
-          <GuidedProductPicker brandKitId={brandKitId} selected={productAssetIds} onSelectedChange={setProductAssetIds} promotion={promotion} onPromotionChange={setPromotion} disabled={mutationLocked} />
+          <GuidedProductPicker brandKitId={brandKitId} selected={productAssetIds} onSelectedChange={setProductAssetIds} promotion={promotion} onPromotionChange={setPromotion} heroShare={heroShare} onHeroShareChange={setHeroShare} disabled={mutationLocked} />
           <GuidedStoryUploads rows={uploads} onChange={setUploads} disabled={mutationLocked} hasBrandKit={brandKitId !== null} />
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
           {contract && <div ref={durationRef} className={runtimeGuidance ? "rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : undefined} data-testid="section-guided-duration"><Label>Duration</Label>{runtimeGuidance && <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-runtime">{runtimeGuidance}</p>}<div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => { setDuration(value); setRuntimeGuidance(null); }} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
@@ -2647,6 +2655,7 @@ function ScriptReview(props: any) {
     <>
       <ScriptSummary script={editedScript} />
       <GuidedRequirementChecklist checks={props.draft.requirementChecks} />
+      <ProductScreenTimeMeter screenTime={props.draft.productScreenTime ?? null} />
       <div className="space-y-4" data-testid="guided-readable-script">
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1.5">
@@ -2806,6 +2815,23 @@ function ScriptReview(props: any) {
                     updateScript({ ...editedScript, scenes });
                   }}
                 />
+                {props.draft.setup?.products?.promotion === "hero" && (scene.productIds?.length ?? 0) > 0 && (
+                  <SceneShotPicker
+                    shot={scene.shot ?? null}
+                    sceneLabel={scene.id}
+                    views={[
+                      "front",
+                      ...(props.draft.setup.products.items.find((item: { id: string }) => item.id === scene.productIds![0])?.angles ?? [])
+                        .map((angle: { view: string }) => angle.view),
+                    ]}
+                    onChange={(shot) => {
+                      const scenes = editedScript.scenes.map((item, index) =>
+                        index === sceneIndex ? { ...item, shot } : item,
+                      );
+                      updateScript({ ...editedScript, scenes });
+                    }}
+                  />
+                )}
                 <SceneReferenceToggles
                   draft={props.draft}
                   referenceIds={scene.referenceIds ?? []}

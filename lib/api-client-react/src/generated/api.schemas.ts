@@ -4202,6 +4202,26 @@ export const BrandProductAiDescriptionStatus = {
   failed: 'failed',
 } as const;
 
+export type BrandProductAngleView = typeof BrandProductAngleView[keyof typeof BrandProductAngleView];
+
+
+export const BrandProductAngleView = {
+  front: 'front',
+  back: 'back',
+  side: 'side',
+  top: 'top',
+  label: 'label',
+  detail: 'detail',
+  in_use: 'in_use',
+  packaging: 'packaging',
+} as const;
+
+export type BrandProductAnglesItem = {
+  id: string;
+  view: BrandProductAngleView;
+  imagePath: string;
+};
+
 export interface BrandProduct {
   id: number;
   brandKitId: number;
@@ -4218,7 +4238,65 @@ export interface BrandProduct {
   aiDescriptionStatus: BrandProductAiDescriptionStatus;
   /** @nullable */
   aiDescriptionError?: string | null;
+  /** Extra photos besides the main (front) image. */
+  angles?: BrandProductAnglesItem[];
   createdAt: string;
+}
+
+export interface BrandProductAngleInput {
+  /**
+     * @minLength 1
+     * @maxLength 512
+     */
+  imagePath: string;
+  view: BrandProductAngleView;
+}
+
+export type GuidedStoryShotType = typeof GuidedStoryShotType[keyof typeof GuidedStoryShotType];
+
+
+export const GuidedStoryShotType = {
+  macro_closeup: 'macro_closeup',
+  hero_shot: 'hero_shot',
+  in_hand: 'in_hand',
+  in_use: 'in_use',
+  texture: 'texture',
+  product_only: 'product_only',
+  character_with_product: 'character_with_product',
+  story_wide: 'story_wide',
+} as const;
+
+export type GuidedStoryShotCamera = typeof GuidedStoryShotCamera[keyof typeof GuidedStoryShotCamera];
+
+
+export const GuidedStoryShotCamera = {
+  orbit: 'orbit',
+  push_in: 'push_in',
+  pull_out: 'pull_out',
+  slide: 'slide',
+  top_down: 'top_down',
+  tilt_reveal: 'tilt_reveal',
+  rack_focus: 'rack_focus',
+  static: 'static',
+} as const;
+
+export type GuidedStoryShotLighting = typeof GuidedStoryShotLighting[keyof typeof GuidedStoryShotLighting];
+
+
+export const GuidedStoryShotLighting = {
+  studio_key: 'studio_key',
+  rim_light: 'rim_light',
+  backlit_glow: 'backlit_glow',
+  window_light: 'window_light',
+  light_sweep: 'light_sweep',
+  golden_hour: 'golden_hour',
+} as const;
+
+export interface GuidedStoryShot {
+  type: GuidedStoryShotType;
+  camera: GuidedStoryShotCamera;
+  lighting: GuidedStoryShotLighting;
+  angle: BrandProductAngleView | null;
 }
 
 export type BrandProductInputKind = typeof BrandProductInputKind[keyof typeof BrandProductInputKind];
@@ -6188,8 +6266,9 @@ export type GuidedStoryProductSelectionInputPromotion = typeof GuidedStoryProduc
 
 
 export const GuidedStoryProductSelectionInputPromotion = {
-  subtle: 'subtle',
+  hero: 'hero',
   featured: 'featured',
+  subtle: 'subtle',
 } as const;
 
 /**
@@ -6202,6 +6281,13 @@ export interface GuidedStoryProductSelectionInput {
      * @items.minimum 1
      */
   assetIds: number[];
+  /**
+     * Product hero only; share of the runtime with the product on screen (default 0.7).
+     * @minimum 0.6
+     * @maximum 0.8
+     * @nullable
+     */
+  heroShare?: number | null;
 }
 
 export interface GuidedStorySetupInput {
@@ -6579,6 +6665,13 @@ export const GuidedStoryProductReferenceDisplayMode = {
   exact: 'exact',
 } as const;
 
+export type GuidedStoryProductReferenceAnglesItem = {
+  view: BrandProductAngleView;
+  imagePath: string;
+  imageSha256: string;
+  mimeType: string;
+};
+
 export interface GuidedStoryProductReference {
   id: string;
   assetId: number;
@@ -6591,18 +6684,21 @@ export interface GuidedStoryProductReference {
   imagePath: string;
   imageSha256: string;
   mimeType: string;
+  angles?: GuidedStoryProductReferenceAnglesItem[];
 }
 
 export type GuidedStoryProductChoicesPromotion = typeof GuidedStoryProductChoicesPromotion[keyof typeof GuidedStoryProductChoicesPromotion];
 
 
 export const GuidedStoryProductChoicesPromotion = {
-  subtle: 'subtle',
+  hero: 'hero',
   featured: 'featured',
+  subtle: 'subtle',
 } as const;
 
 export interface GuidedStoryProductChoices {
   version: 1;
+  heroShare?: number;
   promotion: GuidedStoryProductChoicesPromotion;
   items: GuidedStoryProductReference[];
 }
@@ -6737,6 +6833,7 @@ export interface GuidedStoryScene {
      * @maxItems 3
      */
   referenceIds?: string[];
+  shot?: GuidedStoryShot;
   lines: GuidedStoryLine[];
 }
 
@@ -8877,6 +8974,16 @@ export type GuidedStoryDraftSceneInsertionGeneration = {
 } | null;
 
 /**
+ * Product hero only. How much of the script shows the product.
+ */
+export type GuidedStoryDraftProductScreenTime = {
+  seconds: number;
+  share: number;
+  runtime: number;
+  target: number;
+} | null;
+
+/**
  * Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.
  */
 export type GuidedStoryDraftEstimates = {
@@ -8938,6 +9045,8 @@ export interface GuidedStoryDraft {
   referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
   audioChoices?: GuidedStoryAudioChoices | null;
+  /** Product hero only. How much of the script shows the product. */
+  productScreenTime?: GuidedStoryDraftProductScreenTime;
   /** The script's requirement checklist (what must be shown, said and used). Never blocks approval. */
   requirementChecks?: GuidedStoryRequirementCheck[];
   /** @nullable */

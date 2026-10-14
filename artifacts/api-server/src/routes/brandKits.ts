@@ -22,6 +22,8 @@ import {
   loadBrandProduct,
   normalizeBrandProductInput,
   readBrandProductImage,
+  addBrandProductAngle,
+  removeBrandProductAngle,
   saveBrandProductDescription,
   serializeBrandProduct,
   type BrandProductInput,
@@ -37,6 +39,7 @@ import {
   ResolveBrandSelectionBody,
   CreateBrandAssetBody,
   CreateBrandProductBody,
+  AddBrandProductAngleBody,
   UpdateBrandProductBody,
   CloneBrandVoiceBody,
   SelectBrandVoiceBody,
@@ -580,6 +583,56 @@ router.patch(
         .where(and(eq(brandAssetsTable.id, row.id), eq(brandAssetsTable.tenantId, req.tenantId)))
         .returning()
     )[0];
+    if (!updated) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.json(serializeBrandProduct(updated));
+  },
+);
+
+router.post(
+  "/brand-kits/:id/products/:assetId/angles",
+  async (req: Request, res: Response) => {
+    const assetId = assetIdParam(req, res);
+    if (assetId === null) return;
+    const parsed = AddBrandProductAngleBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Choose a photo and which side it shows." });
+      return;
+    }
+    const row = await loadBrandProduct(req.tenantId, Number(req.params.id), assetId);
+    if (!row) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    try {
+      const updated = await addBrandProductAngle({
+        tenantId: req.tenantId,
+        row,
+        imagePath: parsed.data.imagePath,
+        view: parsed.data.view,
+      });
+      res.status(201).json(serializeBrandProduct(updated));
+    } catch (error) {
+      if (error instanceof BrandProductInputError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  },
+);
+
+router.delete(
+  "/brand-kits/:id/products/:assetId/angles/:angleId",
+  async (req: Request, res: Response) => {
+    const assetId = assetIdParam(req, res);
+    if (assetId === null) return;
+    const row = await loadBrandProduct(req.tenantId, Number(req.params.id), assetId);
+    const updated = row
+      ? await removeBrandProductAngle({ tenantId: req.tenantId, row, angleId: String(req.params.angleId) })
+      : null;
     if (!updated) {
       res.status(404).json({ error: "Not found" });
       return;

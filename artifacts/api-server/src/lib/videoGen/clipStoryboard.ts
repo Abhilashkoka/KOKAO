@@ -26,7 +26,7 @@ import {
   isAtlasWanReferenceModel,
 } from "./providers/atlascloud";
 import { applyProductCardOverlay, concatClips, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
-import { guidedExactProductCards, guidedWanProductReferenceUrls } from "./guidedProductReferences";
+import { guidedExactProductCards, guidedWanProductReferenceUrls, loadApprovedProductImage } from "./guidedProductReferences";
 import { actualClipDuration } from "./renderTimeline";
 import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
 import {
@@ -850,6 +850,17 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
           })),
         );
       }
+    }
+    // A product-only hero shot animates the product photo itself: prove it is
+    // still the exact approved upload before paying for the clip.
+    if (
+      storyboard.mode === "guided_story" &&
+      scene.guidedStory?.visuals.productHero &&
+      scene.guidedStory.roleIds.length === 0 &&
+      scene.previewPath
+    ) {
+      const product = scene.guidedStory.visuals.products?.find((item) => item.imagePath === scene.previewPath);
+      if (product) await loadApprovedProductImage(product, params.job.tenantId);
     }
     // Verify exact-mode product bytes before paying for the clip.
     const productCards =

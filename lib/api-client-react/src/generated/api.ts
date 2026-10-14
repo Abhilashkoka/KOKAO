@@ -132,6 +132,7 @@ import type {
   BrandPreference,
   BrandPreferenceInput,
   BrandProduct,
+  BrandProductAngleInput,
   BrandProductInput,
   BrandProductUpdate,
   BrandVoiceAudio,
@@ -15798,6 +15799,153 @@ export const useUpdateBrandProduct = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getUpdateBrandProductMutationOptions(options));
+    }
+
+export const getAddBrandProductAngleUrl = (id: number,
+    assetId: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/products/${assetId}/angles`
+}
+
+/**
+ * @summary Add another photo of a product (back, side, label close-up…)
+ */
+export const addBrandProductAngle = async (id: number,
+    assetId: number,
+    brandProductAngleInput: BrandProductAngleInput, options?: RequestInit): Promise<BrandProduct> => {
+
+  return customFetch<BrandProduct>(getAddBrandProductAngleUrl(id,assetId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandProductAngleInput)
+  }
+);}
+
+
+
+
+export const getAddBrandProductAngleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addBrandProductAngle>>, TError,{id: number;assetId: number;data: BodyType<BrandProductAngleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addBrandProductAngle>>, TError,{id: number;assetId: number;data: BodyType<BrandProductAngleInput>}, TContext> => {
+
+const mutationKey = ['addBrandProductAngle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addBrandProductAngle>>, {id: number;assetId: number;data: BodyType<BrandProductAngleInput>}> = (props) => {
+          const {id,assetId,data} = props ?? {};
+
+          return  addBrandProductAngle(id,assetId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddBrandProductAngleMutationResult = NonNullable<Awaited<ReturnType<typeof addBrandProductAngle>>>
+    export type AddBrandProductAngleMutationBody = BodyType<BrandProductAngleInput>
+    export type AddBrandProductAngleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add another photo of a product (back, side, label close-up…)
+ */
+export const useAddBrandProductAngle = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addBrandProductAngle>>, TError,{id: number;assetId: number;data: BodyType<BrandProductAngleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addBrandProductAngle>>,
+        TError,
+        {id: number;assetId: number;data: BodyType<BrandProductAngleInput>},
+        TContext
+      > => {
+      return useMutation(getAddBrandProductAngleMutationOptions(options));
+    }
+
+export const getRemoveBrandProductAngleUrl = (id: number,
+    assetId: number,
+    angleId: string,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/products/${assetId}/angles/${angleId}`
+}
+
+/**
+ * @summary Remove an extra product photo
+ */
+export const removeBrandProductAngle = async (id: number,
+    assetId: number,
+    angleId: string, options?: RequestInit): Promise<BrandProduct> => {
+
+  return customFetch<BrandProduct>(getRemoveBrandProductAngleUrl(id,assetId,angleId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRemoveBrandProductAngleMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeBrandProductAngle>>, TError,{id: number;assetId: number;angleId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeBrandProductAngle>>, TError,{id: number;assetId: number;angleId: string}, TContext> => {
+
+const mutationKey = ['removeBrandProductAngle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeBrandProductAngle>>, {id: number;assetId: number;angleId: string}> = (props) => {
+          const {id,assetId,angleId} = props ?? {};
+
+          return  removeBrandProductAngle(id,assetId,angleId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveBrandProductAngleMutationResult = NonNullable<Awaited<ReturnType<typeof removeBrandProductAngle>>>
+
+    export type RemoveBrandProductAngleMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove an extra product photo
+ */
+export const useRemoveBrandProductAngle = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeBrandProductAngle>>, TError,{id: number;assetId: number;angleId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeBrandProductAngle>>,
+        TError,
+        {id: number;assetId: number;angleId: string},
+        TContext
+      > => {
+      return useMutation(getRemoveBrandProductAngleMutationOptions(options));
     }
 
 export const getDescribeBrandProductUrl = (id: number,

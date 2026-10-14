@@ -4454,7 +4454,12 @@ async function produceVideo(
         const reuseBackdrop = reusedFootage
           ? effectiveGuidedBackdrop(options.guidedStory!, scene.guidedStory?.scriptSceneId ?? scene.id)?.reference?.imagePath
           : null;
-        const approvedCharacterInput = reuseBackdrop ??
+        // A product-only shot (no cast) starts from the product photo of the
+        // angle it shows; its bytes are re-verified before the paid call.
+        const productOnlyInput = !primary && scene.guidedStory?.visuals.productHero
+          ? scene.guidedStory.visuals.products?.find((product) => product.displayMode === "in_scene")?.imagePath ?? null
+          : null;
+        const approvedCharacterInput = reuseBackdrop ?? productOnlyInput ??
           (
           primary?.outfit?.referenceImagePath &&
           approval?.outfit?.referenceImagePath === primary.outfit.referenceImagePath

@@ -1,9 +1,11 @@
 import type {
+  GuidedStoryShot,
   GuidedStoryCastSnapshot,
   GuidedStoryScript,
   GuidedStoryVisualChoices,
 } from "@workspace/db";
 import { VideoGenProviderError } from "./types";
+import { productHeroShotClause } from "./productHero";
 
 type PlatformFraming = { aspectRatio: string; safeArea: string };
 type ScriptScene = GuidedStoryScript["scenes"][number];
@@ -39,6 +41,8 @@ export interface GuidedSceneVisualInput {
    * request, in product order. Only supplied when the photos are sent.
    */
   productReferenceLabels?: readonly string[];
+  /** Product-hero story: the product is the subject; shot plan for this scene. */
+  productHero?: { shot: GuidedStoryShot | null };
   /** Scene-level user uploads (props, style, opening/closing shot, motion). */
   references?: ReadonlyArray<{
     handle: string;
@@ -262,7 +266,14 @@ export function uploadReferenceClause(input: GuidedSceneVisualInput): string {
 
 export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
   const labels = input.referenceLabels ?? [];
+  const heroProducts = input.productHero
+    ? (input.products ?? []).filter((product) => product.displayMode === "in_scene").map((product) => product.name)
+    : [];
   const blocks = [
+    // Product hero: the framing comes first, so the product leads the shot.
+    heroProducts.length
+      ? productHeroShotClause({ shot: input.productHero!.shot, productNames: heroProducts, castCount: input.sceneCast.length })
+      : "",
     stripStoryboardDump(input.scriptScene.visualDirection),
     input.sceneCast.map((member, i) => roleClause(member, labels.slice(i * 2, i * 2 + 2))).join(" "),
     castClause(input.sceneCast),
@@ -273,7 +284,12 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
     // and the bare word "logo" invites the model to invent one.
     input.logoPath ? "Leave clear space in the lower third for a logo overlay." : "",
     // Last, so the final thing read is what must not change.
-    "Every face, hairstyle, build and garment stays identical to the references for the entire shot.",
+    input.sceneCast.length
+      ? "Every face, hairstyle, build and garment stays identical to the references for the entire shot."
+      : "",
+    heroProducts.length
+      ? "The product's shape, colours, packaging and label stay identical to its reference photo for the entire shot."
+      : "",
     `Compose for ${input.platform.aspectRatio}. ${input.platform.safeArea}`,
   ];
   return assertNoStoragePaths(blocks.filter((b) => b.trim().length > 0).join("\n"));

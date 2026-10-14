@@ -1,9 +1,12 @@
 import { and, desc, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import {
   db,
   brandAssetsTable,
   tenantsTable,
   type BrandAsset,
+  type BrandProductAngle,
+  type BrandProductAngleView,
   type BrandProductMetadata,
 } from "@workspace/db";
 import { getTextGenClient } from "../textGen";
@@ -74,7 +77,95 @@ export function brandProductMetadata(
         : "pending",
     aiDescribedAt: typeof raw.aiDescribedAt === "string" ? raw.aiDescribedAt : null,
     imageSha256: typeof raw.imageSha256 === "string" ? raw.imageSha256 : null,
+    angles: Array.isArray(raw.angles)
+      ? raw.angles.filter(
+          (angle): angle is BrandProductAngle =>
+            Boolean(angle) &&
+            typeof angle.id === "string" &&
+            typeof angle.path === "string" &&
+            typeof angle.sha256 === "string" &&
+            (BRAND_PRODUCT_ANGLE_VIEWS as readonly string[]).includes(angle.view),
+        )
+      : [],
   };
+}
+
+export const BRAND_PRODUCT_ANGLE_VIEWS: readonly BrandProductAngleView[] = [
+  "front",
+  "back",
+  "side",
+  "top",
+  "label",
+  "detail",
+  "in_use",
+  "packaging",
+];
+/** The main photo plus up to four more angles. */
+export const MAX_BRAND_PRODUCT_PHOTOS = 5;
+
+/**
+ * Add another photo of the same product. One photo per view; the main upload
+ * already is the front. Returns the updated row, or throws on bad input.
+ */
+export async function addBrandProductAngle(params: {
+  tenantId: number;
+  row: BrandAsset;
+  imagePath: string;
+  view: unknown;
+}): Promise<BrandAsset> {
+  const view = params.view as BrandProductAngleView;
+  if (!BRAND_PRODUCT_ANGLE_VIEWS.includes(view) || view === "front") {
+    throw new BrandProductInputError("Choose which side this photo shows (back, side, top, label, detail, in use or packaging).");
+  }
+  const image = await readBrandProductImage(params.imagePath, params.tenantId);
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(brandAssetsTable)
+      .where(and(eq(brandAssetsTable.id, params.row.id), eq(brandAssetsTable.tenantId, params.tenantId)))
+      .for("update");
+    if (!current) throw new BrandProductInputError("This product was removed.");
+    const meta = brandProductMetadata(current);
+    const others = (meta.angles ?? []).filter((angle) => angle.view !== view);
+    if (others.length + 1 >= MAX_BRAND_PRODUCT_PHOTOS) {
+      throw new BrandProductInputError(`A product can have up to ${MAX_BRAND_PRODUCT_PHOTOS} photos. Remove one first.`);
+    }
+    const angle: BrandProductAngle = {
+      id: `a_${randomUUID().slice(0, 8)}`,
+      view,
+      path: params.imagePath,
+      sha256: image.sha256,
+      mimeType: image.mimeType,
+    };
+    const next: BrandProductMetadata = { ...meta, angles: [...others, angle] };
+    return (
+      await tx
+        .update(brandAssetsTable)
+        .set({ metadataJson: next as unknown as Record<string, unknown> })
+        .where(eq(brandAssetsTable.id, current.id))
+        .returning()
+    )[0]!;
+  });
+}
+
+export async function removeBrandProductAngle(params: {
+  tenantId: number;
+  row: BrandAsset;
+  angleId: string;
+}): Promise<BrandAsset | null> {
+  const meta = brandProductMetadata(params.row);
+  const angles = meta.angles ?? [];
+  if (!angles.some((angle) => angle.id === params.angleId)) return null;
+  const next: BrandProductMetadata = { ...meta, angles: angles.filter((angle) => angle.id !== params.angleId) };
+  return (
+    (
+      await db
+        .update(brandAssetsTable)
+        .set({ metadataJson: next as unknown as Record<string, unknown> })
+        .where(and(eq(brandAssetsTable.id, params.row.id), eq(brandAssetsTable.tenantId, params.tenantId)))
+        .returning()
+    )[0] ?? null
+  );
 }
 
 export function serializeBrandProduct(row: BrandAsset) {
@@ -91,6 +182,7 @@ export function serializeBrandProduct(row: BrandAsset) {
     aiDescription: meta.aiDescription,
     aiDescriptionStatus: meta.aiDescriptionStatus,
     aiDescriptionError: meta.aiDescriptionError ?? null,
+    angles: (meta.angles ?? []).map((angle) => ({ id: angle.id, view: angle.view, imagePath: angle.path })),
     createdAt: row.createdAt.toISOString(),
   };
 }

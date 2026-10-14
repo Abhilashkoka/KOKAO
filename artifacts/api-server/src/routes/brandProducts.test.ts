@@ -308,6 +308,37 @@ describe("Guided Story product selection", () => {
     return res.body.id as number;
   }
 
+  it("adds product angles, caps photos at five and freezes them for a hero story", async () => {
+    const kitId = await newKit();
+    const a = await product(kitId, "serum");
+    const add = (view: string, name = view) =>
+      request(app).post(`/api/brand-kits/${kitId}/products/${a}/angles`)
+        .send({ imagePath: `/objects/${tenant.tenantId}/uploads/${name}`, view });
+    expect((await add("front")).status).toBe(400);
+    for (const view of ["back", "side", "label", "detail"]) {
+      expect((await add(view)).status).toBe(201);
+    }
+    const replaced = await add("label", "label-2");
+    expect(replaced.status).toBe(201);
+    expect(replaced.body.angles.map((angle: { view: string }) => angle.view).sort()).toEqual(["back", "detail", "label", "side"]);
+    const full = await add("top");
+    expect(full.status).toBe(400);
+    expect(full.body.error).toMatch(/up to 5 photos/);
+    const frozen = await resolveGuidedSetupProducts({
+      tenantId: tenant.tenantId,
+      setup: { ...baseSetup, brandKitId: kitId },
+      selection: { promotion: "hero", assetIds: [a], heroShare: 0.95 },
+      previous: null,
+    });
+    expect(frozen).toMatchObject({ promotion: "hero", heroShare: 0.8 });
+    expect(frozen!.items[0]!.angles?.map((angle) => angle.view).sort()).toEqual(["back", "detail", "label", "side"]);
+    const removed = await request(app).delete(
+      `/api/brand-kits/${kitId}/products/${a}/angles/${replaced.body.angles[0].id}`,
+    );
+    expect(removed.status).toBe(200);
+    expect(removed.body.angles).toHaveLength(3);
+  });
+
   it("freezes products with hashes, keeps them on omitted updates, and drops them on kit change", async () => {
     const kitId = await newKit();
     const a = await product(kitId, "serum");
