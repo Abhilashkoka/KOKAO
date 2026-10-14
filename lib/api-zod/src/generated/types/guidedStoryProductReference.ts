@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryProductReferenceAnglesItem } from './guidedStoryProductReferenceAnglesItem';
 import type { GuidedStoryProductReferenceDisplayMode } from './guidedStoryProductReferenceDisplayMode';
 import type { GuidedStoryProductReferenceKind } from './guidedStoryProductReferenceKind';
 
@@ -20,4 +21,5 @@ export interface GuidedStoryProductReference {
   imagePath: string;
   imageSha256: string;
   mimeType: string;
+  angles?: GuidedStoryProductReferenceAnglesItem[];
 }

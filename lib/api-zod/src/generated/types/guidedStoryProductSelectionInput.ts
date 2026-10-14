@@ -17,4 +17,11 @@ export interface GuidedStoryProductSelectionInput {
      * @items.minimum 1
      */
   assetIds: number[];
+  /**
+     * Product hero only; share of the runtime with the product on screen (default 0.7).
+     * @minimum 0.6
+     * @maximum 0.8
+     * @nullable
+     */
+  heroShare?: number | null;
 }

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GuidedStoryLine } from './guidedStoryLine';
+import type { GuidedStoryShot } from './guidedStoryShot';
 
 export interface GuidedStoryScene {
   id: string;
@@ -26,5 +27,6 @@ export interface GuidedStoryScene {
      * @maxItems 3
      */
   referenceIds?: string[];
+  shot?: GuidedStoryShot;
   lines: GuidedStoryLine[];
 }

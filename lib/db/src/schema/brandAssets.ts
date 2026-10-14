@@ -37,6 +37,24 @@ export type BrandAsset = typeof brandAssetsTable.$inferSelect;
  */
 export type BrandProductKind = "product" | "service";
 export type BrandProductDisplayMode = "in_scene" | "exact";
+/** Which side of the product a photo shows. The main upload is "front". */
+export type BrandProductAngleView =
+  | "front"
+  | "back"
+  | "side"
+  | "top"
+  | "label"
+  | "detail"
+  | "in_use"
+  | "packaging";
+/** An extra photo of the same product from another angle. */
+export interface BrandProductAngle {
+  id: string;
+  view: BrandProductAngleView;
+  path: string;
+  sha256: string;
+  mimeType: string;
+}
 export interface BrandProductMetadata {
   version: 1;
   name: string;
@@ -52,4 +70,6 @@ export interface BrandProductMetadata {
   aiDescribedAt: string | null;
   /** SHA-256 of the exact bytes the AI description was made from. */
   imageSha256: string | null;
+  /** Extra angles (back, side, label close-up…); absent on older products. */
+  angles?: BrandProductAngle[];
 }

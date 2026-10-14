@@ -77,6 +77,7 @@ import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { createKit } from "../lib/brandKit/service";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { removeBrandProductAngle } from "../lib/brandKit/products";
 import {
   GuidedProductSelectionError,
   assertGuidedProductsUnchanged,
@@ -307,6 +308,23 @@ describe("Guided Story product selection", () => {
     expect(res.status).toBe(201);
     return res.body.id as number;
   }
+
+  it("removes an angle using current metadata rather than a stale product row", async () => {
+    const kitId = await newKit();
+    const assetId = await product(kitId, "serum");
+    const base = `/api/brand-kits/${kitId}/products/${assetId}/angles`;
+    const back = await request(app).post(base)
+      .send({ view: "back", imagePath: `/objects/${tenant.tenantId}/uploads/back` });
+    expect(back.status).toBe(201);
+    const [stale] = await db.select().from(brandAssetsTable).where(eq(brandAssetsTable.id, assetId));
+    const side = await request(app).post(base)
+      .send({ view: "side", imagePath: `/objects/${tenant.tenantId}/uploads/side` });
+    expect(side.status).toBe(201);
+    const removed = await removeBrandProductAngle({
+      tenantId: tenant.tenantId, row: stale!, angleId: back.body.angles[0].id,
+    });
+    expect((removed!.metadataJson as { angles: Array<{ view: string }> }).angles.map((a) => a.view)).toEqual(["side"]);
+  });
 
   it("adds product angles, caps photos at five and freezes them for a hero story", async () => {
     const kitId = await newKit();

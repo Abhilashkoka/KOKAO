@@ -10,6 +10,7 @@ export type GuidedStoryProductChoicesPromotion = typeof GuidedStoryProductChoice
 
 
 export const GuidedStoryProductChoicesPromotion = {
-  subtle: 'subtle',
+  hero: 'hero',
   featured: 'featured',
+  subtle: 'subtle',
 } as const;

@@ -10,6 +10,7 @@ import type { GuidedStoryProductReference } from './guidedStoryProductReference'
 
 export interface GuidedStoryProductChoices {
   version: 1;
+  heroShare?: number;
   promotion: GuidedStoryProductChoicesPromotion;
   items: GuidedStoryProductReference[];
 }

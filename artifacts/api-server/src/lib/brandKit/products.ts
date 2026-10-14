@@ -153,19 +153,23 @@ export async function removeBrandProductAngle(params: {
   row: BrandAsset;
   angleId: string;
 }): Promise<BrandAsset | null> {
-  const meta = brandProductMetadata(params.row);
-  const angles = meta.angles ?? [];
-  if (!angles.some((angle) => angle.id === params.angleId)) return null;
-  const next: BrandProductMetadata = { ...meta, angles: angles.filter((angle) => angle.id !== params.angleId) };
-  return (
-    (
-      await db
+  return db.transaction(async (tx) => {
+    const [current] = await tx.select().from(brandAssetsTable)
+      .where(and(eq(brandAssetsTable.id, params.row.id), eq(brandAssetsTable.tenantId, params.tenantId)))
+      .for("update");
+    if (!current) return null;
+    const meta = brandProductMetadata(current);
+    const angles = meta.angles ?? [];
+    if (!angles.some((angle) => angle.id === params.angleId)) return null;
+    const next: BrandProductMetadata = { ...meta, angles: angles.filter((angle) => angle.id !== params.angleId) };
+    return (
+      await tx
         .update(brandAssetsTable)
         .set({ metadataJson: next as unknown as Record<string, unknown> })
-        .where(and(eq(brandAssetsTable.id, params.row.id), eq(brandAssetsTable.tenantId, params.tenantId)))
+        .where(eq(brandAssetsTable.id, current.id))
         .returning()
-    )[0] ?? null
-  );
+    )[0] ?? null;
+  });
 }
 
 export function serializeBrandProduct(row: BrandAsset) {

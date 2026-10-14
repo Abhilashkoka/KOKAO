@@ -147,7 +147,43 @@ export type GuidedStoryPlatform =
 export type GuidedStoryLocale = "en" | "hi" | "te" | "ta";
 
 /** How hard the story sells the selected Brand Kit products & services. */
-export type GuidedStoryPromotion = "subtle" | "featured";
+export type GuidedStoryPromotion = "subtle" | "featured" | "hero";
+
+/** Product-ad shot vocabulary for "hero" stories. */
+export type GuidedStoryShotType =
+  | "macro_closeup"
+  | "hero_shot"
+  | "in_hand"
+  | "in_use"
+  | "texture"
+  | "product_only"
+  | "character_with_product"
+  | "story_wide";
+export type GuidedStoryCameraMove =
+  | "orbit"
+  | "push_in"
+  | "pull_out"
+  | "slide"
+  | "top_down"
+  | "tilt_reveal"
+  | "rack_focus"
+  | "static";
+export type GuidedStoryLighting =
+  | "studio_key"
+  | "rim_light"
+  | "backlit_glow"
+  | "window_light"
+  | "light_sweep"
+  | "golden_hour";
+
+/** How one scene is shot. Present on product-hero scripts. */
+export interface GuidedStoryShot {
+  type: GuidedStoryShotType;
+  camera: GuidedStoryCameraMove;
+  lighting: GuidedStoryLighting;
+  /** Which product photo angle the shot shows. */
+  angle: import("./brandAssets").BrandProductAngleView | null;
+}
 
 /**
  * A Brand Kit product frozen into one draft. The image bytes are pinned by
@@ -166,12 +202,21 @@ export interface GuidedStoryProductReference {
   imagePath: string;
   imageSha256: string;
   mimeType: string;
+  /** Extra frozen angles, each pinned by hash. The main photo is "front". */
+  angles?: Array<{
+    view: import("./brandAssets").BrandProductAngleView;
+    imagePath: string;
+    imageSha256: string;
+    mimeType: string;
+  }>;
 }
 
 export interface GuidedStoryProductChoices {
   version: 1;
   promotion: GuidedStoryPromotion;
   items: GuidedStoryProductReference[];
+  /** "hero" only: target share of runtime with the product on screen (0.6–0.8). */
+  heroShare?: number;
 }
 
 export interface GuidedStoryScript {
@@ -197,6 +242,8 @@ export interface GuidedStoryScript {
     productIds?: string[];
     /** Story references (uploads) used in this scene. Absent on legacy scripts. */
     referenceIds?: string[];
+    /** Shot plan (product-hero scripts). */
+    shot?: GuidedStoryShot;
     lines: Array<{
       id: string;
       ownerRoleId: string | null;

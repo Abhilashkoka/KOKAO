@@ -13086,6 +13086,11 @@ export const ListBrandProductsResponseItem = zod.object({
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
   "aiDescriptionError": zod.string().nullish(),
+  "angles": zod.array(zod.object({
+  "id": zod.string(),
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string()
+})).optional().describe('Extra photos besides the main (front) image.'),
   "createdAt": zod.coerce.date()
 })
 export const ListBrandProductsResponse = zod.array(ListBrandProductsResponseItem)
@@ -13130,6 +13135,11 @@ export const CreateBrandProductResponse = zod.object({
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
   "aiDescriptionError": zod.string().nullish(),
+  "angles": zod.array(zod.object({
+  "id": zod.string(),
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string()
+})).optional().describe('Extra photos besides the main (front) image.'),
   "createdAt": zod.coerce.date()
 })
 
@@ -13169,6 +13179,79 @@ export const UpdateBrandProductResponse = zod.object({
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
   "aiDescriptionError": zod.string().nullish(),
+  "angles": zod.array(zod.object({
+  "id": zod.string(),
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string()
+})).optional().describe('Extra photos besides the main (front) image.'),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Add another photo of a product (back, side, label close-up…)
+ */
+export const AddBrandProductAngleParams = zod.object({
+  "id": zod.coerce.number(),
+  "assetId": zod.coerce.number()
+})
+
+export const addBrandProductAngleBodyImagePathMax = 512;
+
+
+
+export const AddBrandProductAngleBody = zod.object({
+  "imagePath": zod.string().min(1).max(addBrandProductAngleBodyImagePathMax),
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging'])
+})
+
+export const AddBrandProductAngleResponse = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "imagePath": zod.string(),
+  "mimeType": zod.string().nullable(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
+  "aiDescription": zod.string().nullable(),
+  "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "aiDescriptionError": zod.string().nullish(),
+  "angles": zod.array(zod.object({
+  "id": zod.string(),
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string()
+})).optional().describe('Extra photos besides the main (front) image.'),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Remove an extra product photo
+ */
+export const RemoveBrandProductAngleParams = zod.object({
+  "id": zod.coerce.number(),
+  "assetId": zod.coerce.number(),
+  "angleId": zod.coerce.string()
+})
+
+export const RemoveBrandProductAngleResponse = zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "imagePath": zod.string(),
+  "mimeType": zod.string().nullable(),
+  "name": zod.string(),
+  "kind": zod.enum(['product', 'service']),
+  "description": zod.string(),
+  "displayMode": zod.enum(['in_scene', 'exact']).describe('in_scene lets the AI place it in the shot; exact overlays the untouched upload as a product card.'),
+  "aiDescription": zod.string().nullable(),
+  "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
+  "aiDescriptionError": zod.string().nullish(),
+  "angles": zod.array(zod.object({
+  "id": zod.string(),
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string()
+})).optional().describe('Extra photos besides the main (front) image.'),
   "createdAt": zod.coerce.date()
 })
 
@@ -13193,6 +13276,11 @@ export const DescribeBrandProductResponse = zod.object({
   "aiDescription": zod.string().nullable(),
   "aiDescriptionStatus": zod.enum(['pending', 'ready', 'failed']),
   "aiDescriptionError": zod.string().nullish(),
+  "angles": zod.array(zod.object({
+  "id": zod.string(),
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string()
+})).optional().describe('Extra photos besides the main (front) image.'),
   "createdAt": zod.coerce.date()
 })
 
@@ -16997,6 +17085,9 @@ export const createGuidedStoryDraftBodyTopicMax = 6000;
 
 export const createGuidedStoryDraftBodyProductSelectionAssetIdsMax = 4;
 
+export const createGuidedStoryDraftBodyProductSelectionHeroShareMin = 0.6;
+export const createGuidedStoryDraftBodyProductSelectionHeroShareMax = 0.8;
+
 
 
 export const CreateGuidedStoryDraftBody = zod.object({
@@ -17027,8 +17118,9 @@ export const CreateGuidedStoryDraftBody = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftBodyProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftBodyProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(createGuidedStoryDraftBodyProductSelectionHeroShareMin).max(createGuidedStoryDraftBodyProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 })
 
@@ -17076,6 +17168,9 @@ export const createGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 
 export const createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const createGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -17183,8 +17278,9 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -17193,7 +17289,8 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -17204,7 +17301,13 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -17255,6 +17358,12 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17362,6 +17471,12 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17486,6 +17601,12 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(createGuidedStoryDraftResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -17557,6 +17678,9 @@ export const getGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 
 export const getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const getGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -17664,8 +17788,9 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -17674,7 +17799,8 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -17685,7 +17811,13 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -17736,6 +17868,12 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17843,6 +17981,12 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -17967,6 +18111,12 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(getGuidedStoryDraftResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -18039,6 +18189,9 @@ export const updateGuidedStoryDraftBodySetupTopicMax = 6000;
 
 
 export const updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax = 4;
+
+export const updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin = 0.6;
+export const updateGuidedStoryDraftBodySetupProductSelectionHeroShareMax = 0.8;
 
 export const updateGuidedStoryDraftBodyScriptRolesMax = 20;
 
@@ -18113,8 +18266,9 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin).max(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).optional(),
   "script": zod.object({
@@ -18136,6 +18290,12 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18256,6 +18416,9 @@ export const updateGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
+export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
+
 export const updateGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
@@ -18362,8 +18525,9 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -18372,7 +18536,8 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -18383,7 +18548,13 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -18434,6 +18605,12 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18541,6 +18718,12 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -18665,6 +18848,12 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(updateGuidedStoryDraftResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -18743,6 +18932,9 @@ export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
 
 export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
@@ -18850,8 +19042,9 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -18860,7 +19053,8 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -18871,7 +19065,13 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -18922,6 +19122,12 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19029,6 +19235,12 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19153,6 +19365,12 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(generateGuidedStoryDraftScriptResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -19241,6 +19459,9 @@ export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax = 6000
 
 
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMax = 20;
 
@@ -19348,8 +19569,9 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -19358,7 +19580,8 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -19369,7 +19592,13 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -19420,6 +19649,12 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19527,6 +19762,12 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19651,6 +19892,12 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(refreshGuidedStoryLineTranslationResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -19725,6 +19972,12 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19778,6 +20031,12 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -19852,6 +20111,9 @@ export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
 
 export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
@@ -19959,8 +20221,9 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -19969,7 +20232,8 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -19980,7 +20244,13 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -20031,6 +20301,12 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20138,6 +20414,12 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20262,6 +20544,12 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(approveGuidedStoryDraftScriptResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -20355,6 +20643,9 @@ export const castGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 
 export const castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const castGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -20462,8 +20753,9 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -20472,7 +20764,8 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -20483,7 +20776,13 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -20534,6 +20833,12 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20641,6 +20946,12 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -20765,6 +21076,12 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(castGuidedStoryDraftResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -20845,6 +21162,9 @@ export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMax = 6000;
 
 
 export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const approveGuidedStoryCastRoleResponseScriptOneRolesMax = 20;
 
@@ -20952,8 +21272,9 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -20962,7 +21283,8 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -20973,7 +21295,13 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -21024,6 +21352,12 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21131,6 +21465,12 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21255,6 +21595,12 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(approveGuidedStoryCastRoleResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -21350,6 +21696,9 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax = 
 
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax = 20;
 
@@ -21457,8 +21806,9 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -21467,7 +21817,8 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -21478,7 +21829,13 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -21529,6 +21886,12 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21636,6 +21999,12 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -21760,6 +22129,12 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(customizeGuidedStoryGeneratedCastRoleResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -21840,6 +22215,9 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopic
 
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax = 20;
 
@@ -21947,8 +22325,9 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -21957,7 +22336,8 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -21968,7 +22348,13 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -22019,6 +22405,12 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22126,6 +22518,12 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22250,6 +22648,12 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(retryGuidedStoryGeneratedCastReferenceSheetResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -22423,6 +22827,9 @@ export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
 export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
+export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
+
 export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
@@ -22529,8 +22936,9 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -22539,7 +22947,8 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -22550,7 +22959,13 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -22601,6 +23016,12 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22708,6 +23129,12 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -22832,6 +23259,12 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(prepareGuidedStoryBackdropResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -22918,6 +23351,9 @@ export const approveGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
 
 export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
@@ -23025,8 +23461,9 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -23035,7 +23472,8 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -23046,7 +23484,13 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -23097,6 +23541,12 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -23204,6 +23654,12 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -23328,6 +23784,12 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(approveGuidedStoryBackdropResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -23407,6 +23869,9 @@ export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax = 6000
 
 
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 20;
 
@@ -23514,8 +23979,9 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -23524,7 +23990,8 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -23535,7 +24002,13 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -23586,6 +24059,12 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -23693,6 +24172,12 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -23817,6 +24302,12 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(inheritGuidedStoryDefaultBackdropResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -23896,6 +24387,9 @@ export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
 
 export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
@@ -24003,8 +24497,9 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -24013,7 +24508,8 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -24024,7 +24520,13 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -24075,6 +24577,12 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -24182,6 +24690,12 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -24306,6 +24820,12 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(finalizeGuidedStoryReferenceResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),
@@ -24385,6 +24905,9 @@ export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
 
 export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax = 4;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
@@ -24492,8 +25015,9 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "roleCount": zod.number().optional().describe('Historical setup preference retained for compatibility. The server ignores it when generating scripts; script.roles is authoritative.'),
   "brandKitId": zod.number().nullish(),
   "productSelection": zod.object({
-  "promotion": zod.enum(['subtle', 'featured']),
-  "assetIds": zod.array(zod.number().min(1)).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax)
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
+  "assetIds": zod.array(zod.number().min(1)).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax),
+  "heroShare": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -24502,7 +25026,8 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "safeArea": zod.string(),
   "products": zod.union([zod.object({
   "version": zod.number(),
-  "promotion": zod.enum(['subtle', 'featured']),
+  "heroShare": zod.number().optional(),
+  "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
   "assetId": zod.number(),
@@ -24513,7 +25038,13 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "displayMode": zod.enum(['in_scene', 'exact']),
   "imagePath": zod.string(),
   "imageSha256": zod.string(),
+  "mimeType": zod.string(),
+  "angles": zod.array(zod.object({
+  "view": zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),
+  "imagePath": zod.string(),
+  "imageSha256": zod.string(),
   "mimeType": zod.string()
+})).optional()
 }))
 }),zod.null()]).optional(),
   "references": zod.union([zod.object({
@@ -24564,6 +25095,12 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -24671,6 +25208,12 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
   "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "shot": zod.object({
+  "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
+  "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
+  "lighting": zod.enum(['studio_key', 'rim_light', 'backlit_glow', 'window_light', 'light_sweep', 'golden_hour']),
+  "angle": zod.union([zod.enum(['front', 'back', 'side', 'top', 'label', 'detail', 'in_use', 'packaging']),zod.null()])
+}).optional(),
   "lines": zod.array(zod.object({
   "id": zod.string(),
   "ownerRoleId": zod.string().nullable(),
@@ -24795,6 +25338,12 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "replaceGeneratedAudio": zod.boolean()
 })).max(rejectGuidedStoryReferenceResponseAudioChoicesOneItemsMax)
 }),zod.null()]).optional(),
+  "productScreenTime": zod.union([zod.null(),zod.object({
+  "seconds": zod.number(),
+  "share": zod.number(),
+  "runtime": zod.number(),
+  "target": zod.number()
+})]).optional().describe('Product hero only. How much of the script shows the product.'),
   "requirementChecks": zod.array(zod.object({
   "kind": zod.enum(['must_show', 'must_say', 'call_to_action', 'reference']),
   "text": zod.string(),

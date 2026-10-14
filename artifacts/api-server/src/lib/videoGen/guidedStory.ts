@@ -2029,11 +2029,15 @@ export async function generateGuidedStoryScript(params: {
           params.products,
         );
         if (
-          candidate.roles.length === script.roles.length &&
+          isDeepStrictEqual(candidate.roles, script.roles) &&
+          isDeepStrictEqual(
+            candidate.scenes.map(({ visualDirection, roleIds, productIds, shot, ...fixed }) => fixed),
+            script.scenes.map(({ visualDirection, roleIds, productIds, shot, ...fixed }) => fixed),
+          ) &&
           productScreenTime(candidate).share > productScreenTime(script).share
         ) {
           assertGeneratedDisplayMetadata(candidate, params.locale);
-          script = candidate;
+          script = { ...script, scenes: candidate.scenes };
         }
       }
     } catch {

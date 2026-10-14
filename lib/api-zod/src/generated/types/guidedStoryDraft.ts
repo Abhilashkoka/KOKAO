@@ -11,6 +11,7 @@ import type { GuidedStoryCastSnapshot } from './guidedStoryCastSnapshot';
 import type { GuidedStoryDraftCastStrategy } from './guidedStoryDraftCastStrategy';
 import type { GuidedStoryDraftEstimates } from './guidedStoryDraftEstimates';
 import type { GuidedStoryDraftGeneratedCastOperations } from './guidedStoryDraftGeneratedCastOperations';
+import type { GuidedStoryDraftProductScreenTime } from './guidedStoryDraftProductScreenTime';
 import type { GuidedStoryDraftSceneInsertionGeneration } from './guidedStoryDraftSceneInsertionGeneration';
 import type { GuidedStoryDraftScriptGeneration } from './guidedStoryDraftScriptGeneration';
 import type { GuidedStoryImageModelSnapshot } from './guidedStoryImageModelSnapshot';
@@ -47,6 +48,8 @@ export interface GuidedStoryDraft {
   referenceOperations: GuidedStoryReferenceOperation[];
   visualChoices: GuidedStoryVisualChoices;
   audioChoices?: GuidedStoryAudioChoices | null;
+  /** Product hero only. How much of the script shows the product. */
+  productScreenTime?: GuidedStoryDraftProductScreenTime;
   /** The script's requirement checklist (what must be shown, said and used). Never blocks approval. */
   requirementChecks?: GuidedStoryRequirementCheck[];
   /** @nullable */

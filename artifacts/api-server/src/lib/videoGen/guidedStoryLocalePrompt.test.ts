@@ -38,6 +38,58 @@ describe("Guided Story locale prompt contract", () => {
     governedPrompt.mockResolvedValue({ text: "Governed story policy." });
   });
 
+  it.each(["visual-only", "dialogue", "cast", "timing"])(
+    "accepts only source-preserving product hero reworks (%s)",
+    async (change) => {
+      const original = {
+        title: "Serum",
+        logline: "A calm evening routine.",
+        roles: [{ id: "role-1", name: "A", description: "A fictional person" }],
+        scenes: [{
+          id: "scene-1", startMs: 0, endMs: 30_000,
+          visualDirection: "A quiet evening routine beside a window.",
+          roleIds: ["role-1"], productIds: [],
+          shot: { type: "story_wide", camera: "static", lighting: "window_light", angle: null },
+          lines: [{
+            id: "line-1", kind: "narration", ownerRoleId: null,
+            text: "A calm evening routine.", startMs: 0, endMs: 30_000,
+          }],
+        }],
+        warnings: [],
+      };
+      const reworked = structuredClone(original);
+      reworked.scenes[0]!.productIds = ["p1"] as never[];
+      reworked.scenes[0]!.roleIds = [];
+      reworked.scenes[0]!.shot.type = "product_only";
+      reworked.scenes[0]!.visualDirection = "The serum bottle fills the frame, its label sharp.";
+      if (change === "dialogue") reworked.scenes[0]!.lines[0]!.text = "Different words for this advertisement.";
+      if (change === "cast") reworked.roles[0]!.description = "A different fictional person";
+      if (change === "timing") reworked.scenes[0]!.endMs = 29_000;
+      create.mockResolvedValueOnce(completion(original)).mockResolvedValueOnce(completion(reworked));
+      const result = await generateGuidedStoryScript({
+        tenantId: 1, tenantAiModel: "test", genre: "drama",
+        platform: guidedStoryPlatform("tiktok")!, durationSeconds: 30,
+        maxSceneSeconds: 30, locale: "en", topic: "An evening serum routine",
+        brandConstraints: null,
+        products: {
+          version: 1, promotion: "hero", heroShare: 0.7,
+          items: [{
+            id: "p1", assetId: 1, name: "Serum", kind: "product",
+            description: "Evening serum", aiDescription: "A labeled serum bottle",
+            displayMode: "in_scene", imagePath: "/objects/1/uploads/serum",
+            imageSha256: "f".repeat(64), mimeType: "image/png",
+          }],
+        },
+      });
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(result.script.scenes[0]!.shot?.type).toBe(change === "visual-only" ? "product_only" : "story_wide");
+      expect(result.script.roles[0]!.description).toBe(original.roles[0]!.description);
+      expect(result.script.scenes[0]!.lines[0]!.text).toBe(original.scenes[0]!.lines[0]!.text);
+      expect(result.script.scenes[0]!.endMs).toBe(30_000);
+      expect(result.inputTokens).toBe(20);
+    },
+  );
+
   it("repairs excessive dialogue without rejecting the replacement for sparse speech", async () => {
     const screenplay = (text: string) => ({
       title: "The storm",

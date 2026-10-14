@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BrandProductAiDescriptionStatus } from './brandProductAiDescriptionStatus';
+import type { BrandProductAnglesItem } from './brandProductAnglesItem';
 import type { BrandProductDisplayMode } from './brandProductDisplayMode';
 import type { BrandProductKind } from './brandProductKind';
 
@@ -25,5 +26,7 @@ export interface BrandProduct {
   aiDescriptionStatus: BrandProductAiDescriptionStatus;
   /** @nullable */
   aiDescriptionError?: string | null;
+  /** Extra photos besides the main (front) image. */
+  angles?: BrandProductAnglesItem[];
   createdAt: Date;
 }

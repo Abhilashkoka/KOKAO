@@ -1466,7 +1466,13 @@ export interface VideoStoryboardScene {
         displayMode: "in_scene" | "exact";
         imagePath: string;
         imageSha256: string;
+        /** Which angle photo imagePath is; absent means the main photo. */
+        view?: import("./brandAssets").BrandProductAngleView;
       }>;
+      /** Product-hero shot plan for this scene. */
+      shot?: import("./guidedStories").GuidedStoryShot;
+      /** Product-hero story: the product is the subject of the video. */
+      productHero?: boolean;
       /**
        * Story image uploads used in this scene (props, style, opening/closing
        * shot, other), in reference order. Present only when the scene uses at

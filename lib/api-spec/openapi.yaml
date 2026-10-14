@@ -5378,6 +5378,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/products/{assetId}/angles:
+    post:
+      operationId: addBrandProductAngle
+      tags: [brand-kits]
+      summary: Add another photo of a product (back, side, label close-up…)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandProductAngleInput"
+      responses:
+        "201":
+          description: Product with the new angle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandProduct"
+        "400":
+          description: Invalid photo, view, or too many photos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/products/{assetId}/angles/{angleId}:
+    delete:
+      operationId: removeBrandProductAngle
+      tags: [brand-kits]
+      summary: Remove an extra product photo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: assetId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: angleId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Product without that angle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandProduct"
+        "404":
+          description: Not found
   /brand-kits/{id}/products/{assetId}/describe:
     post:
       operationId: describeBrandProduct
@@ -18720,9 +18780,48 @@ components:
         aiDescription: { type: ["string", "null"] }
         aiDescriptionStatus: { type: string, enum: [pending, ready, failed] }
         aiDescriptionError: { type: ["string", "null"] }
+        angles:
+          type: array
+          description: Extra photos besides the main (front) image.
+          items:
+            type: object
+            required: [id, view, imagePath]
+            properties:
+              id: { type: string }
+              view:
+                $ref: "#/components/schemas/BrandProductAngleView"
+              imagePath: { type: string }
         createdAt:
           type: string
           format: date-time
+    BrandProductAngleView:
+      type: string
+      enum: [front, back, side, top, label, detail, in_use, packaging]
+    BrandProductAngleInput:
+      type: object
+      additionalProperties: false
+      required: [imagePath, view]
+      properties:
+        imagePath: { type: string, minLength: 1, maxLength: 512 }
+        view:
+          $ref: "#/components/schemas/BrandProductAngleView"
+    GuidedStoryShot:
+      type: object
+      required: [type, camera, lighting, angle]
+      properties:
+        type:
+          type: string
+          enum: [macro_closeup, hero_shot, in_hand, in_use, texture, product_only, character_with_product, story_wide]
+        camera:
+          type: string
+          enum: [orbit, push_in, pull_out, slide, top_down, tilt_reveal, rack_focus, static]
+        lighting:
+          type: string
+          enum: [studio_key, rim_light, backlit_glow, window_light, light_sweep, golden_hour]
+        angle:
+          oneOf:
+            - $ref: "#/components/schemas/BrandProductAngleView"
+            - type: "null"
     BrandProductInput:
       type: object
       additionalProperties: false
@@ -20926,11 +21025,16 @@ components:
         Brand Kit products & services to promote. Omit on an update to keep
         the current selection; send an empty assetIds list to clear it.
       properties:
-        promotion: { type: string, enum: [subtle, featured] }
+        promotion: { type: string, enum: [hero, featured, subtle] }
         assetIds:
           type: array
           maxItems: 4
           items: { type: integer, minimum: 1 }
+        heroShare:
+          type: ["number", "null"]
+          minimum: 0.6
+          maximum: 0.8
+          description: Product hero only; share of the runtime with the product on screen (default 0.7).
     GuidedStoryProductReference:
       type: object
       required: [id, assetId, name, kind, description, aiDescription, displayMode, imagePath, imageSha256, mimeType]
@@ -20945,12 +21049,24 @@ components:
         imagePath: { type: string }
         imageSha256: { type: string }
         mimeType: { type: string }
+        angles:
+          type: array
+          items:
+            type: object
+            required: [view, imagePath, imageSha256, mimeType]
+            properties:
+              view:
+                $ref: "#/components/schemas/BrandProductAngleView"
+              imagePath: { type: string }
+              imageSha256: { type: string }
+              mimeType: { type: string }
     GuidedStoryProductChoices:
       type: object
       required: [version, promotion, items]
       properties:
         version: { type: integer, const: 1 }
-        promotion: { type: string, enum: [subtle, featured] }
+        heroShare: { type: number }
+        promotion: { type: string, enum: [hero, featured, subtle] }
         items:
           type: array
           items:
@@ -21226,6 +21342,8 @@ components:
           maxItems: 3
           description: Story upload ids (setup.references.items[].id) used in this scene.
           items: { type: string }
+        shot:
+          $ref: "#/components/schemas/GuidedStoryShot"
         lines:
           type: array
           items:
@@ -21787,6 +21905,17 @@ components:
           oneOf:
             - $ref: "#/components/schemas/GuidedStoryAudioChoices"
             - type: "null"
+        productScreenTime:
+          description: Product hero only. How much of the script shows the product.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [seconds, share, runtime, target]
+              properties:
+                seconds: { type: number }
+                share: { type: number }
+                runtime: { type: number }
+                target: { type: number }
         requirementChecks:
           type: array
           description: The script's requirement checklist (what must be shown, said and used). Never blocks approval.
