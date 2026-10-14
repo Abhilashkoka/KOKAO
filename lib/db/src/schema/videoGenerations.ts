@@ -229,6 +229,63 @@ export interface GuidedStoryDialogueReplayCheckpoint {
 }
 
 /** Options captured at enqueue time so the job is fully self-describing. */
+/** Smart Edit: regenerate a cut range of a finished video, approve, re-stitch. */
+export type SmartEditType = "change" | "remove" | "outfit" | "dialogue" | "regenerate";
+
+/** Normalized 0–1 rectangle on the frame. */
+export interface SmartEditBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SmartEditVersion {
+  id: string;
+  path: string;
+  thumbnailPath: string | null;
+  durationSec: number;
+  createdAt: string;
+  /** The approved edit that produced it; null for the original render. */
+  editId: string | null;
+  label: string;
+}
+
+export interface SmartEditAttempt {
+  id: string;
+  type: SmartEditType;
+  /** Live states (generating / ready / failed) come from the child job. */
+  status: "generating" | "approved" | "discarded";
+  startSec: number;
+  endSec: number;
+  box: SmartEditBox | null;
+  instruction: string;
+  dialogueText: string | null;
+  /** The version the cut was taken from; approval requires it is still current. */
+  baseVersionId: string;
+  cutPath: string;
+  startFramePath: string;
+  endFramePath: string | null;
+  editedStartFramePath: string | null;
+  editedEndFramePath: string | null;
+  /** "original" keeps the video's own sound under the new picture; "clip" uses the new clip's sound. */
+  audio: "original" | "clip";
+  childJobId: number | null;
+  resultVersionId: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SmartEditState {
+  version: 1;
+  original: SmartEditVersion;
+  /** Approved edit versions, oldest first, capped. */
+  versions: SmartEditVersion[];
+  currentVersionId: string;
+  edits: SmartEditAttempt[];
+}
+
 export interface FrozenJobCompliance {
   version: 1;
   profession: ComplianceProfession;
@@ -959,6 +1016,10 @@ export interface VideoJobOptions {
    * deployed pack for that profession, so a later Brand Kit edit cannot
    * loosen an in-flight job. Absent/null = no regulated profession. */
   compliance?: FrozenJobCompliance | null;
+  /** Smart Edit history on a finished job. */
+  smartEdit?: SmartEditState;
+  /** Set on the child job that regenerates one Smart Edit cut. Hidden from the job list. */
+  smartEditOf?: { parentJobId: number; editId: string };
   /** Durable presenter render snapshot. Planned once, then reused by review,
    * approval and retries so stock searches / image generations never drift. */
 

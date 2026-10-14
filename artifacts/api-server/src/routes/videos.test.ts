@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { markTestTemplatePayload } from "../lib/videoGen/testTemplateIsolation";
 vi.mock("../lib/videoGen/brandOutro", async importOriginal => ({
@@ -300,9 +301,12 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
           size: 1024,
           contentType: objectPath.endsWith(".png") ? "image/png" : "video/mp4",
         }],
-        download: async () => [Buffer.from(
-          objectPath.endsWith(".png") ? `image:${objectPath}` : "presenter-video",
-        )],
+        download: async () => [
+          objectStorageState.referenceBytes.get(objectPath) ??
+            Buffer.from(
+              objectPath.endsWith(".png") ? `image:${objectPath}` : "presenter-video",
+            ),
+        ],
       };
     }
   }
@@ -13690,4 +13694,129 @@ describe("self-service local video repair", () => {
     expect(second.body.repair.sourceJobId).toBe(source.id);
     expect(second.body.id).not.toBe(first.body.id);
   });
+});
+
+
+describe("Smart Edit", () => {
+  const ffmpegBytes = (args: string[]) =>
+    execFileSync("ffmpeg", ["-v", "error", ...args, "-f", "mp4", "-movflags", "frag_keyframe+empty_moov", "pipe:1"], {
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  let baseVideo: Buffer;
+  let newClip: Buffer;
+
+  beforeAll(() => {
+    baseVideo = ffmpegBytes(["-f", "lavfi", "-i", "testsrc=size=360x640:rate=30:duration=8", "-f", "lavfi", "-i", "sine=duration=8",
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"]);
+    newClip = ffmpegBytes(["-f", "lavfi", "-i", "color=c=pink:size=360x640:rate=24:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p"]);
+  });
+
+  async function finishedJob(tenantId: number) {
+    const videoPath = `/objects/${tenantId}/uploads/finished.mp4`;
+    objectStorageState.referenceBytes.set(videoPath, baseVideo);
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId,
+      engine: "image_to_video",
+      status: "succeeded",
+      prompt: "A shop counter",
+      videoPath,
+      options: { aspectRatio: "9:16" },
+    }).returning();
+    return job!;
+  }
+
+  it("validates the cut before doing any work", async () => {
+    const tenant = await newTenant();
+    const job = await finishedJob(tenant.tenantId);
+    const empty = await request(app).get(`/api/ai/video-jobs/${job.id}/smart-edit`);
+    expect(empty.status).toBe(200);
+    expect(empty.body).toMatchObject({ currentVersionId: "v0", versions: [], edits: [] });
+    const pastEnd = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/edits`)
+      .send({ type: "change", startSec: 2, endSec: 9.5, instruction: "make it blue" });
+    expect(pastEnd.status).toBe(400);
+    expect(pastEnd.body.error).toMatch(/past the end/);
+    const noBox = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/edits`)
+      .send({ type: "remove", startSec: 1, endSec: 3 });
+    expect(noBox.status).toBe(400);
+    expect(noBox.body.error).toMatch(/box/);
+    const quote = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/quote`)
+      .send({ type: "regenerate", startSec: 1, endSec: 4 });
+    expect(quote.status).toBe(200);
+    expect(quote.body.lines.map((line: { rateKey: string }) => line.rateKey)).toEqual(["video"]);
+  });
+
+  it("cuts the range and starts a hidden regeneration of only that cut", async () => {
+    const tenant = await newTenant();
+    const job = await finishedJob(tenant.tenantId);
+    const created = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/edits`)
+      .send({ type: "regenerate", startSec: 2, endSec: 5, instruction: "slower push-in", baseVersionId: "v0" });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.edits[0]).toMatchObject({ type: "regenerate", status: "generating", startSec: 2, endSec: 5 });
+    const childId = created.body.edits[0].childJobId as number;
+    const [child] = await db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, childId));
+    expect(child!.engine).toBe("image_to_video");
+    expect(child!.options?.smartEditOf).toEqual({ parentJobId: job.id, editId: created.body.edits[0].id });
+    expect(child!.options?.durationSec).toBe(3);
+    expect(child!.prompt).toContain("slower push-in");
+    const list = await request(app).get("/api/ai/video-jobs");
+    expect(list.body.map((row: { id: number }) => row.id)).not.toContain(childId);
+    expect(list.body.map((row: { id: number }) => row.id)).toContain(job.id);
+    const stale = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/edits`)
+      .send({ type: "regenerate", startSec: 2, endSec: 5, baseVersionId: "v7" });
+    expect(stale.status).toBe(409);
+  });
+
+  it("approves a ready cut into a new current version, then restores the original", async () => {
+    const tenant = await newTenant();
+    const job = await finishedJob(tenant.tenantId);
+    const clipPath = `/objects/${tenant.tenantId}/uploads/new-cut.mp4`;
+    objectStorageState.referenceBytes.set(clipPath, newClip);
+    const [child] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "image_to_video",
+      status: "succeeded",
+      videoPath: clipPath,
+      options: { aspectRatio: "9:16", smartEditOf: { parentJobId: job.id, editId: "e_test" } },
+    }).returning();
+    const now = new Date().toISOString();
+    await db.update(videoGenerationsTable).set({
+      options: {
+        aspectRatio: "9:16",
+        smartEdit: {
+          version: 1,
+          original: { id: "v0", path: job.videoPath!, thumbnailPath: null, durationSec: 8, createdAt: now, editId: null, label: "Original" },
+          versions: [],
+          currentVersionId: "v0",
+          edits: [{
+            id: "e_test", type: "change", status: "generating", startSec: 2, endSec: 5, box: null,
+            instruction: "make it pink", dialogueText: null, baseVersionId: "v0",
+            cutPath: "/objects/x/cut.mp4", startFramePath: "/objects/x/a.png", endFramePath: null,
+            editedStartFramePath: null, editedEndFramePath: null, audio: "original",
+            childJobId: child!.id, resultVersionId: null, error: null, createdAt: now, updatedAt: now,
+          }],
+        },
+      },
+    }).where(eq(videoGenerationsTable.id, job.id));
+
+    const state = await request(app).get(`/api/ai/video-jobs/${job.id}/smart-edit`);
+    expect(state.body.edits[0]).toMatchObject({ id: "e_test", status: "ready", clipPath });
+
+    const approved = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/edits/e_test/approve`);
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect(approved.body.currentVersionId).toBe("v1");
+    expect(approved.body.versions.map((version: { id: string }) => version.id)).toEqual(["v0", "v1"]);
+    expect(approved.body.versions[1].durationSec).toBeGreaterThan(7.8);
+    expect(approved.body.edits[0]).toMatchObject({ status: "approved", resultVersionId: "v1" });
+    const finished = await request(app).get(`/api/ai/video-jobs/${job.id}`);
+    expect(finished.body.smartEditVersionId).toBe("v1");
+    expect(finished.body.currentVideoPath).toBe(approved.body.versions[1].path);
+
+    const again = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/edits/e_test/approve`);
+    expect(again.status).toBe(409);
+
+    const restored = await request(app).post(`/api/ai/video-jobs/${job.id}/smart-edit/versions/v0/restore`);
+    expect(restored.body.currentVersionId).toBe("v0");
+    const original = await request(app).get(`/api/ai/video-jobs/${job.id}`);
+    expect(original.body.currentVideoPath).toBe(job.videoPath);
+  }, 120_000);
 });

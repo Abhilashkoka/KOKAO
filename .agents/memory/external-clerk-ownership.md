@@ -31,3 +31,9 @@ Fresh throwaway users in the external Development instance may require Clerk's `
 **Why:** A development-only test identity completed ticket sign-in but could not enter Studio because the pending organization task kept redirecting it back to sign-in.
 
 **How to apply:** Treat ticket acceptance and protected-page access as separate checks. Satisfy the development account's required tasks through the existing supported flow before testing protected pages, or report that browser verification is blocked. Do not change production authentication or disable instance-wide requirements merely to force a test through.
+
+The programmatic browser-test sign-in helper can reject the Preview redirect origin before returning any sign-in URL.
+
+**Why:** A protected-page test received HTTP 422 for both a Studio return path and the helper's default Preview redirect, without ever navigating to the app. This does not establish that ordinary user sign-in is broken.
+
+**How to apply:** Distinguish helper redirect rejection from app routing failures. Verify the external Development instance and allowed test origin before attempting more logins; report blocked browser coverage rather than changing production authentication to satisfy a test helper.

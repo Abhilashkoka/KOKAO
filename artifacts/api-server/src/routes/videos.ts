@@ -22,6 +22,7 @@ import {
   storyboardPreviewsAreGenerated,
   type CreativeDirection,
   type VideoJobOptions,
+  type SmartEditAttempt,
   type VideoStoryboard,
   type VideoStoryboardScene,
   type GuidedStoryDraft,
@@ -46,6 +47,8 @@ import {
   GetVideoCapabilitiesResponse,
   RepairVideoJobBody,
   CreateGuidedStoryDraftBody,
+  CreateSmartEditBody,
+  QuoteSmartEditBody,
   InspectGuidedStoryReferenceBody,
   TranscribeGuidedStoryReferenceBody,
   UpdateGuidedStoryDraftBody,
@@ -226,6 +229,36 @@ import {
   characterVisualQaErrorMessage,
 } from "./characters";
 import { uploadBufferToStorage } from "../lib/storageUpload";
+import {
+  SMART_EDIT_KEEP_VERSIONS,
+  SMART_EDIT_MAX_SECONDS,
+  SMART_EDIT_MIN_SECONDS,
+  SmartEditInputError,
+  cutSmartEditSegment,
+  fitFrame,
+  initialSmartEditState,
+  loadTenantVideo as loadSmartEditVideo,
+  newSmartEditId,
+  nextSmartEditVersionId,
+  probeVideoBuffer,
+  quoteSmartEdit,
+  smartEditAttemptStatus,
+  smartEditClipPrompt,
+  smartEditCurrentPath,
+  smartEditCurrentVersion,
+  smartEditFrameEdits,
+  smartEditFramePrompt,
+  smartEditMask,
+  smartEditTypeLabel,
+  stitchSmartEdit,
+  validateSmartEditRequest,
+  withSmartEditAttempt,
+  withSmartEditVersion,
+} from "../lib/videoGen/smartEdit";
+import { ImageEditModerationError, performImageEdit } from "../lib/imageEdit";
+import { getMeterMode } from "../lib/creditRates";
+import { peekCreditBalance } from "../lib/creditAccounts";
+import { respondToCreditError } from "../lib/creditPreflight";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
 import { freezeReferenceImages } from "../lib/videoGen/topicVideo/referenceImages";
 import {
@@ -245,7 +278,7 @@ import {
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
 import {
-  checkTextsWithAiReview, complianceGateError, complianceScriptHint, describeFindings,
+  checkCompliance, checkTextsWithAiReview, complianceGateError, complianceScriptHint, describeFindings,
   ensureStoryboardAiReview, guidedScriptComplianceTexts, mergeGuidance, resolveGuidedStoryCompliance, resolveJobCompliance,
   newBlockingFindings, storyboardComplianceReport, thawCompliance,
   ComplianceConfigError, ComplianceUnavailableError,
@@ -1841,7 +1874,8 @@ function serializeVideoJob(
       job.guidedStoryRecoveryUnavailableAt != null,
     guidedStoryRecoveryDismissed:
       job.guidedStoryRecoveryDismissedAt != null,
-    currentVideoPath: lineage?.currentVideoPath ?? job.videoPath ?? null,
+    currentVideoPath: lineage?.currentVideoPath ?? smartEditCurrentPath(job) ?? job.videoPath ?? null,
+    smartEditVersionId: job.options?.smartEdit?.currentVersionId ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
     // The rule for generated covers lives here rather than in the client, so
     // the button and the route's own refusal can never disagree.
@@ -12847,7 +12881,7 @@ async function generateVideoHandler(
     // Regulated kits always stop for storyboard review before billable
     // visuals; Guided Story keeps its own script/cast/backdrop approvals.
     if (
-      !guidedDraft && !options.directedVideo && !body.directedVideo &&
+      !guidedDraft && !options.directedVideo && !body.directedVideo && !res.locals.smartEditLink &&
       ["topic_to_video", "text_to_video", "image_to_video", "slideshow"].includes(body.engine) &&
       options.reviewStoryboard === false
     ) {
@@ -13929,6 +13963,11 @@ async function generateVideoHandler(
       });
     }
   }
+  if (typeof res.locals.onVideoJobCreated === "function") {
+    // An internal caller (Smart Edit) links the job and sends its own response.
+    await (res.locals.onVideoJobCreated as (created: VideoGeneration) => Promise<void>)(job);
+    return;
+  }
   res.status(201).json(serializeVideoJob(job));
   } catch (error) {
     if (!provisionalGuidedJob || provisionalGuidedJob.status !== "creating") {
@@ -13994,6 +14033,8 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
       and(
         eq(videoGenerationsTable.tenantId, req.tenantId),
         ne(videoGenerationsTable.status, "creating"),
+        // Smart Edit cut regenerations live inside their parent video.
+        sql`(${videoGenerationsTable.options}->'smartEditOf') is null`,
       ),
     )
     .orderBy(
@@ -14040,7 +14081,7 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
       const currentVideoPath =
         repairChildren.get(row.id)?.status === "succeeded"
           ? repairChildren.get(row.id)!.videoPath
-          : row.videoPath;
+          : smartEditCurrentPath(row) ?? row.videoPath;
       return serializeVideoJob(
         row,
         childSourceIds.has(row.id) ? false : undefined,
@@ -14230,6 +14271,532 @@ router.post(
     }
   },
 );
+
+/* ------------------------------------------------------------------ *
+ * Smart Edit — cut a range, regenerate only that cut, approve, re-stitch.
+ * ------------------------------------------------------------------ */
+
+const MAX_PENDING_SMART_EDITS = 3;
+
+async function loadSmartEditParent(req: Request, res: Response): Promise<VideoGeneration | null> {
+  const job = await loadJob(req);
+  if (!job) {
+    res.status(404).json({ error: "Video not found." });
+    return null;
+  }
+  if (job.options?.smartEditOf) {
+    res.status(400).json({ error: "Open the original video to edit it." });
+    return null;
+  }
+  if (job.status !== "succeeded" || !job.videoPath) {
+    res.status(409).json({ error: "Edits are available once the video has finished." });
+    return null;
+  }
+  return job;
+}
+
+/** The end-frame-capable default image-to-video model, when there is one. */
+async function smartEditEndFrameModel(): Promise<{ id: string } | null> {
+  const selection = await getVideoGenSelection();
+  const picked = VIDEO_MODEL_CATALOG.find(
+    (candidate) =>
+      candidate.provider === selection.provider &&
+      candidate.models.image === selection.imageToVideoModel,
+  );
+  if (!picked || !supportsEndFrame(picked)) return null;
+  const enabled = selection.enabledModelIds === null || selection.enabledModelIds.includes(picked.id);
+  return enabled ? { id: picked.id } : null;
+}
+
+async function serializeSmartEdit(job: VideoGeneration) {
+  const state = job.options?.smartEdit ?? null;
+  const childIds = (state?.edits ?? []).flatMap((edit) => (edit.childJobId ? [edit.childJobId] : []));
+  const children = childIds.length
+    ? await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(and(eq(videoGenerationsTable.tenantId, job.tenantId), inArray(videoGenerationsTable.id, childIds)))
+    : [];
+  const byId = new Map(children.map((child) => [child.id, child]));
+  const current = smartEditCurrentVersion(state);
+  return {
+    jobId: job.id,
+    currentVersionId: current?.id ?? "v0",
+    currentVideoPath: current?.path ?? job.videoPath,
+    versions: state ? [state.original, ...state.versions] : [],
+    edits: (state?.edits ?? [])
+      .slice()
+      .reverse()
+      .map((edit) => {
+        const child = edit.childJobId ? byId.get(edit.childJobId) ?? null : null;
+        const status = smartEditAttemptStatus(edit, child);
+        return {
+          id: edit.id,
+          type: edit.type,
+          status,
+          startSec: edit.startSec,
+          endSec: edit.endSec,
+          box: edit.box,
+          instruction: edit.instruction,
+          dialogueText: edit.dialogueText,
+          baseVersionId: edit.baseVersionId,
+          cutPath: edit.cutPath,
+          startFramePath: edit.startFramePath,
+          editedStartFramePath: edit.editedStartFramePath,
+          clipPath: status === "ready" || status === "approved" ? child?.videoPath ?? null : null,
+          childJobId: edit.childJobId,
+          stage: status === "generating" ? child?.stage ?? null : null,
+          error: status === "failed" ? edit.error ?? child?.error ?? "The regeneration failed. Try again." : null,
+          resultVersionId: edit.resultVersionId,
+          createdAt: edit.createdAt,
+        };
+      }),
+    limits: { minSeconds: SMART_EDIT_MIN_SECONDS, maxSeconds: SMART_EDIT_MAX_SECONDS, keepVersions: SMART_EDIT_KEEP_VERSIONS },
+  };
+}
+
+/** Lock the parent row and apply a change to its Smart Edit state. */
+async function updateSmartEditState(
+  jobId: number,
+  tenantId: number,
+  change: (current: VideoGeneration) => { options: VideoJobOptions; clearSaved?: boolean } | { error: string; status: number },
+): Promise<VideoGeneration | { failed: true; error: string; status: number }> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(videoGenerationsTable)
+      .where(and(eq(videoGenerationsTable.id, jobId), eq(videoGenerationsTable.tenantId, tenantId)))
+      .for("update");
+    if (!row) return { failed: true as const, error: "Video not found.", status: 404 };
+    const result = change(row);
+    if ("error" in result) return { failed: true as const, ...result };
+    const [saved] = await tx
+      .update(videoGenerationsTable)
+      .set({
+        options: result.options,
+        ...(result.clearSaved ? { savedContentItemId: null } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(videoGenerationsTable.id, jobId))
+      .returning();
+    return saved!;
+  });
+}
+
+router.get("/ai/video-jobs/:jobId/smart-edit", async (req: Request, res: Response) => {
+  const job = await loadJob(req);
+  if (!job || job.options?.smartEditOf) {
+    res.status(404).json({ error: "Video not found." });
+    return;
+  }
+  res.json(await serializeSmartEdit(job));
+});
+
+router.post("/ai/video-jobs/:jobId/smart-edit/quote", async (req: Request, res: Response) => {
+  const parsed = QuoteSmartEditBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid edit." });
+    return;
+  }
+  const job = await loadSmartEditParent(req, res);
+  if (!job) return;
+  const current = smartEditCurrentVersion(job.options?.smartEdit);
+  let request;
+  try {
+    // Without a stored length, allow the full range; the create route checks the real one.
+    request = validateSmartEditRequest(parsed.data, current?.durationSec ?? 600);
+  } catch (error) {
+    if (error instanceof SmartEditInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+  const endFrame = request.type !== "dialogue" ? await smartEditEndFrameModel() : null;
+  res.json(await quoteSmartEdit(request, Boolean(endFrame)));
+});
+
+router.post("/ai/video-jobs/:jobId/smart-edit/edits", async (req: Request, res: Response) => {
+  const parsed = CreateSmartEditBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid edit." });
+    return;
+  }
+  const job = await loadSmartEditParent(req, res);
+  if (!job) return;
+  const input = parsed.data;
+  const state = job.options?.smartEdit ?? null;
+  const pending = (await serializeSmartEdit(job)).edits.filter(
+    (edit) => edit.status === "generating" || edit.status === "ready",
+  ).length;
+  if (pending >= MAX_PENDING_SMART_EDITS) {
+    res.status(409).json({ error: "Approve or discard your open edits before starting another." });
+    return;
+  }
+  const currentVersion = smartEditCurrentVersion(state);
+  const basePath = currentVersion?.path ?? job.videoPath!;
+  const baseVersionId = currentVersion?.id ?? "v0";
+  if (input.baseVersionId && input.baseVersionId !== baseVersionId) {
+    res.status(409).json({ error: "This video changed since you opened the editor. Reload and mark the edit again." });
+    return;
+  }
+  let base: Buffer;
+  try {
+    base = await loadSmartEditVideo(basePath, req.tenantId);
+  } catch (error) {
+    req.log.warn({ err: error, jobId: job.id }, "Smart Edit could not load the current video");
+    res.status(409).json({ error: "The current video could not be read. Reload and try again." });
+    return;
+  }
+  let request: ReturnType<typeof validateSmartEditRequest>;
+  let cut: Awaited<ReturnType<typeof cutSmartEditSegment>>;
+  try {
+    const probe = await probeVideoBuffer(base);
+    request = validateSmartEditRequest(input, probe.durationSec);
+    cut = await cutSmartEditSegment(base, request.startSec, request.endSec);
+  } catch (error) {
+    if (error instanceof SmartEditInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+  if (request.type === "dialogue" && input.consent !== true) {
+    res.status(400).json({ error: "Confirm you have permission to make this person say the new line." });
+    return;
+  }
+  // Regulated videos keep their NMC / ICAI rules for every edit.
+  const compliance = thawCompliance(job.options?.compliance ?? null);
+  if (compliance) {
+    const report = checkCompliance(
+      [
+        ...(request.instruction ? [{ field: "visual" as const, location: "Edit instruction", text: request.instruction }] : []),
+        ...(request.dialogueText ? [{ field: "spoken" as const, location: "New line", text: request.dialogueText }] : []),
+      ],
+      compliance,
+    );
+    const blocking = report?.findings.filter((finding) => finding.severity === "block") ?? [];
+    if (blocking.length) {
+      res.status(400).json({
+        error: `This edit breaks ${compliance.profession === "medical" ? "NMC" : "ICAI"} advertising rules: ${describeFindings(blocking)}.`,
+        code: "compliance_blocked",
+      });
+      return;
+    }
+  }
+  const endFrameModel = request.type !== "dialogue" ? await smartEditEndFrameModel() : null;
+  // Prepaid credits: stop before the first paid call when the balance can't cover it.
+  try {
+    if ((await getMeterMode()) === "enforce") {
+      const [quote, balance] = await Promise.all([
+        quoteSmartEdit(request, Boolean(endFrameModel)),
+        peekCreditBalance(req.tenantId),
+      ]);
+      if (quote.credits > balance.total) {
+        res.status(402).json({
+          error: `This edit needs about ${quote.credits.toFixed(1)} credits and you have ${balance.total.toFixed(1)}. Top up to continue.`,
+          code: "insufficient_credits",
+          required: quote.credits,
+          available: balance.total,
+          shortfall: Math.max(0, quote.credits - balance.total),
+        });
+        return;
+      }
+    }
+  } catch (error) {
+    req.log.warn({ err: error }, "Smart Edit credit preflight failed; continuing");
+  }
+
+  const editId = newSmartEditId();
+  const now = new Date().toISOString();
+  const [cutPath, startFramePath, endFramePath] = await Promise.all([
+    uploadBufferToStorage(req.tenantId, cut.clip, "video/mp4"),
+    uploadBufferToStorage(req.tenantId, cut.startFrame, "image/png"),
+    endFrameModel ? uploadBufferToStorage(req.tenantId, cut.endFrame, "image/png") : Promise.resolve(null),
+  ]);
+
+  // Picture edits change the frame(s) first; the video model then animates
+  // from the edited frame (to the edited end frame where the model allows).
+  let editedStartFramePath: string | null = null;
+  let editedEndFramePath: string | null = null;
+  if (smartEditFrameEdits(request, Boolean(endFrameModel)) > 0) {
+    const tenant = (await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1))[0];
+    if (!tenant) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const mask = (await smartEditMask(cut.probe.width, cut.probe.height, request.box)).toString("base64");
+    const editFrame = async (frame: Buffer, which: "start" | "end") => {
+      const outcome = await performImageEdit({
+        tenantId: req.tenantId,
+        tenant,
+        sourceBuffer: frame,
+        sourceMimeType: "image/png",
+        maskB64: mask,
+        prompt: smartEditFramePrompt(request),
+        meterContext: {
+          tenantId: req.tenantId,
+          refKind: "videoJobSmartEdit",
+          refId: String(job.id),
+          funding: await freezeMeterFunding(req.tenantId),
+          operationKey: `videoJob:${job.id}:smart-edit:${editId}:${which}`,
+        },
+      });
+      const fitted = await fitFrame(Buffer.from(outcome.b64Json, "base64"), cut.probe.width, cut.probe.height);
+      return uploadBufferToStorage(req.tenantId, fitted, "image/png");
+    };
+    try {
+      editedStartFramePath = await editFrame(cut.startFrame, "start");
+      if (endFrameModel) editedEndFramePath = await editFrame(cut.endFrame, "end");
+    } catch (error) {
+      if (respondToCreditError(res, error)) return;
+      if (error instanceof ImageEditModerationError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      req.log.error({ err: error, jobId: job.id }, "Smart Edit frame edit failed");
+      res.status(502).json({ error: "The picture edit failed. Try a different description or a smaller area." });
+      return;
+    }
+  }
+
+  const attempt: SmartEditAttempt = {
+    id: editId,
+    type: request.type,
+    status: "generating",
+    startSec: request.startSec,
+    endSec: request.endSec,
+    box: request.box,
+    instruction: request.instruction,
+    dialogueText: request.dialogueText,
+    baseVersionId,
+    cutPath,
+    startFramePath,
+    endFramePath,
+    editedStartFramePath,
+    editedEndFramePath,
+    audio: request.type === "dialogue" ? "clip" : "original",
+    childJobId: null,
+    resultVersionId: null,
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const baseDuration = cut.probe.durationSec;
+  const recorded = await updateSmartEditState(job.id, req.tenantId, (row) => ({
+    options: {
+      ...row.options!,
+      smartEdit: withSmartEditAttempt(
+        row.options?.smartEdit ?? initialSmartEditState(row, baseDuration),
+        attempt,
+      ),
+    },
+  }));
+  if ("failed" in recorded) {
+    res.status(recorded.status).json({ error: recorded.error });
+    return;
+  }
+
+  const sceneVisual =
+    job.storyboard?.scenes?.find((_scene, index, scenes) => {
+      let start = 0;
+      for (let i = 0; i < index; i += 1) start += scenes[i]!.durationSec ?? 0;
+      return request.startSec >= start && request.startSec < start + (scenes[index]!.durationSec ?? 0);
+    })?.visual ?? null;
+  const childBody =
+    request.type === "dialogue"
+      ? {
+          engine: "lip_sync" as const,
+          sourceVideoPath: cutPath,
+          prompt: request.dialogueText,
+          lipSyncConsent: true,
+          ...(input.voice ? { voice: input.voice } : {}),
+          brandKitId: job.options?.brandKitId ?? null,
+          aspectRatio: job.options?.aspectRatio ?? "9:16",
+        }
+      : {
+          engine: "image_to_video" as const,
+          prompt: smartEditClipPrompt({ request, sceneVisual, hasEndFrame: Boolean(endFrameModel) }),
+          sourceImagePaths: [
+            editedStartFramePath ?? startFramePath,
+            ...(endFrameModel ? [editedEndFramePath ?? endFramePath!] : []),
+          ],
+          ...(endFrameModel ? { modelId: endFrameModel.id } : {}),
+          aspectRatio: job.options?.aspectRatio ?? "9:16",
+          durationSec: Math.max(3, Math.min(600, Math.ceil(request.endSec - request.startSec))),
+          reviewStoryboard: false,
+          brandKitId: job.options?.brandKitId ?? null,
+        };
+  const linked = { done: false };
+  req.body = childBody;
+  res.locals.smartEditLink = { parentJobId: job.id, editId };
+  res.locals.onVideoJobCreated = async (child: VideoGeneration) => {
+    await db
+      .update(videoGenerationsTable)
+      .set({ options: { ...child.options!, smartEditOf: { parentJobId: job.id, editId } } })
+      .where(eq(videoGenerationsTable.id, child.id));
+    const saved = await updateSmartEditState(job.id, req.tenantId, (row) => {
+      const smartEdit = row.options?.smartEdit;
+      const existing = smartEdit?.edits.find((edit) => edit.id === editId);
+      if (!smartEdit || !existing) return { error: "Edit not found.", status: 404 };
+      return {
+        options: {
+          ...row.options!,
+          smartEdit: withSmartEditAttempt(smartEdit, { ...existing, childJobId: child.id, updatedAt: new Date().toISOString() }),
+        },
+      };
+    });
+    linked.done = true;
+    if ("failed" in saved) {
+      res.status(saved.status).json({ error: saved.error });
+      return;
+    }
+    res.status(201).json(await serializeSmartEdit(saved));
+  };
+  await generateVideoHandler(req, res);
+  if (!linked.done) {
+    // The regeneration was refused before it started (its error is already sent).
+    await updateSmartEditState(job.id, req.tenantId, (row) => {
+      const smartEdit = row.options?.smartEdit;
+      const existing = smartEdit?.edits.find((edit) => edit.id === editId);
+      if (!smartEdit || !existing) return { error: "Edit not found.", status: 404 };
+      return {
+        options: {
+          ...row.options!,
+          smartEdit: withSmartEditAttempt(smartEdit, {
+            ...existing,
+            error: "The regeneration could not start.",
+            updatedAt: new Date().toISOString(),
+          }),
+        },
+      };
+    }).catch(() => undefined);
+  }
+});
+
+router.post("/ai/video-jobs/:jobId/smart-edit/edits/:editId/approve", async (req: Request, res: Response) => {
+  const job = await loadSmartEditParent(req, res);
+  if (!job) return;
+  const state = job.options?.smartEdit;
+  const attempt = state?.edits.find((edit) => edit.id === req.params.editId);
+  if (!state || !attempt) {
+    res.status(404).json({ error: "Edit not found." });
+    return;
+  }
+  if (attempt.status !== "generating") {
+    res.status(409).json({ error: attempt.status === "approved" ? "This edit is already in the video." : "This edit was discarded." });
+    return;
+  }
+  if (state.currentVersionId !== attempt.baseVersionId) {
+    res.status(409).json({ error: "The video changed after this edit was made. Mark the edit again on the current version." });
+    return;
+  }
+  const child = attempt.childJobId
+    ? (await db.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, attempt.childJobId),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).limit(1))[0]
+    : undefined;
+  if (!child || child.status !== "succeeded" || !child.videoPath) {
+    res.status(409).json({ error: "The new clip isn't ready yet." });
+    return;
+  }
+  const base = smartEditCurrentVersion(state)!;
+  let stitched: Awaited<ReturnType<typeof stitchSmartEdit>>;
+  try {
+    stitched = await stitchSmartEdit({
+      base: await loadSmartEditVideo(base.path, req.tenantId),
+      clip: await loadSmartEditVideo(child.videoPath, req.tenantId),
+      startSec: attempt.startSec,
+      endSec: attempt.endSec,
+      audio: attempt.audio,
+    });
+  } catch (error) {
+    req.log.error({ err: error, jobId: job.id, editId: attempt.id }, "Smart Edit stitch failed");
+    res.status(500).json({ error: "Putting the edit back into the video failed. Try approving again." });
+    return;
+  }
+  const [videoPath, thumbnailPath] = await Promise.all([
+    uploadBufferToStorage(req.tenantId, stitched.video, "video/mp4"),
+    uploadBufferToStorage(req.tenantId, stitched.thumbnail, "image/png"),
+  ]);
+  const saved = await updateSmartEditState(job.id, req.tenantId, (row) => {
+    const smartEdit = row.options?.smartEdit;
+    const existing = smartEdit?.edits.find((edit) => edit.id === attempt.id);
+    if (!smartEdit || !existing || existing.status !== "generating") {
+      return { error: "This edit changed while it was being applied. Reload.", status: 409 };
+    }
+    if (smartEdit.currentVersionId !== attempt.baseVersionId) {
+      return { error: "The video changed while this edit was being applied. Mark it again.", status: 409 };
+    }
+    const versionId = nextSmartEditVersionId(smartEdit);
+    const withVersion = withSmartEditVersion(smartEdit, {
+      id: versionId,
+      path: videoPath,
+      thumbnailPath,
+      durationSec: stitched.durationSec,
+      createdAt: new Date().toISOString(),
+      editId: attempt.id,
+      label: `${smartEditTypeLabel(attempt.type)} ${attempt.startSec.toFixed(1)}–${attempt.endSec.toFixed(1)}s`,
+    });
+    return {
+      options: {
+        ...row.options!,
+        smartEdit: withSmartEditAttempt(withVersion, {
+          ...existing,
+          status: "approved",
+          resultVersionId: versionId,
+          updatedAt: new Date().toISOString(),
+        }),
+      },
+      // The library copy shows the old cut; offer saving the edited video.
+      clearSaved: true,
+    };
+  });
+  if ("failed" in saved) {
+    res.status(saved.status).json({ error: saved.error });
+    return;
+  }
+  res.json(await serializeSmartEdit(saved));
+});
+
+router.post("/ai/video-jobs/:jobId/smart-edit/edits/:editId/discard", async (req: Request, res: Response) => {
+  const job = await loadSmartEditParent(req, res);
+  if (!job) return;
+  const saved = await updateSmartEditState(job.id, req.tenantId, (row) => {
+    const smartEdit = row.options?.smartEdit;
+    const existing = smartEdit?.edits.find((edit) => edit.id === req.params.editId);
+    if (!smartEdit || !existing) return { error: "Edit not found.", status: 404 };
+    if (existing.status === "approved") return { error: "This edit is already in the video. Restore an earlier version instead.", status: 409 };
+    return {
+      options: {
+        ...row.options!,
+        smartEdit: withSmartEditAttempt(smartEdit, { ...existing, status: "discarded", updatedAt: new Date().toISOString() }),
+      },
+    };
+  });
+  if ("failed" in saved) {
+    res.status(saved.status).json({ error: saved.error });
+    return;
+  }
+  res.json(await serializeSmartEdit(saved));
+});
+
+router.post("/ai/video-jobs/:jobId/smart-edit/versions/:versionId/restore", async (req: Request, res: Response) => {
+  const job = await loadSmartEditParent(req, res);
+  if (!job) return;
+  const saved = await updateSmartEditState(job.id, req.tenantId, (row) => {
+    const smartEdit = row.options?.smartEdit;
+    const version = smartEdit && [smartEdit.original, ...smartEdit.versions].find((item) => item.id === req.params.versionId);
+    if (!smartEdit || !version) return { error: "Version not found.", status: 404 };
+    return { options: { ...row.options!, smartEdit: { ...smartEdit, currentVersionId: version.id } }, clearSaved: true };
+  });
+  if ("failed" in saved) {
+    res.status(saved.status).json({ error: saved.error });
+    return;
+  }
+  res.json(await serializeSmartEdit(saved));
+});
 
 router.patch(
   "/ai/video-jobs/:jobId/cover",
@@ -14660,7 +15227,7 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
   const currentVideoPath =
     repairChild?.status === "succeeded"
       ? repairChild.videoPath
-      : reconciled!.videoPath;
+      : smartEditCurrentPath(reconciled!) ?? reconciled!.videoPath;
   const legacySavedContent = currentVideoPath
     ? (
         await db
@@ -19165,7 +19732,7 @@ router.post(
           candidate.status === "succeeded" &&
           Boolean(candidate.videoPath),
       );
-      const currentVideoPath = repairChild?.videoPath ?? job.videoPath;
+      const currentVideoPath = repairChild?.videoPath ?? smartEditCurrentPath(job) ?? job.videoPath;
       const legacyExisting = (
         await tx
           .select()
@@ -19199,7 +19766,10 @@ router.post(
             title: parsed.data.title,
             caption: parsed.data.caption ?? "",
             videoPath: currentVideoPath,
-            videoThumbnailPath: repairChild?.thumbnailPath ?? job.thumbnailPath,
+            videoThumbnailPath:
+              repairChild?.thumbnailPath ??
+              (smartEditCurrentPath(job) ? smartEditCurrentVersion(job.options?.smartEdit)?.thumbnailPath : null) ??
+              job.thumbnailPath,
             platform: parsed.data.platform ?? "instagram",
             contentType: "reel",
             status: "draft",

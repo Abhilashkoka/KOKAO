@@ -8610,6 +8610,213 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/smart-edit:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getSmartEdit
+      tags: [ai]
+      summary: Smart Edit state of a finished video (versions and edit attempts)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartEditState"
+        "400":
+          description: Invalid edit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The video changed or the edit is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/smart-edit/quote:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: quoteSmartEdit
+      tags: [ai]
+      summary: Credits for one Smart Edit attempt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SmartEditInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartEditQuote"
+        "400":
+          description: Invalid edit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The video changed or the edit is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/smart-edit/edits:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createSmartEdit
+      tags: [ai]
+      summary: Cut a range and regenerate only that cut
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SmartEditCreateInput"
+      responses:
+        "201":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartEditState"
+        "400":
+          description: Invalid edit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The video changed or the edit is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/smart-edit/edits/{editId}/approve:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: editId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: approveSmartEdit
+      tags: [ai]
+      summary: Approve a regenerated cut and stitch it into a new version
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartEditState"
+        "400":
+          description: Invalid edit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The video changed or the edit is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/smart-edit/edits/{editId}/discard:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: editId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: discardSmartEdit
+      tags: [ai]
+      summary: Discard a regenerated cut
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartEditState"
+        "400":
+          description: Invalid edit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The video changed or the edit is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/smart-edit/versions/{versionId}/restore:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: versionId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: restoreSmartEditVersion
+      tags: [ai]
+      summary: Make an earlier version current
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmartEditState"
+        "400":
+          description: Invalid edit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The video changed or the edit is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/cover:
     parameters:
       - name: jobId
@@ -20520,6 +20727,123 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GuidedStoryUploadReference"
+    SmartEditBox:
+      type: object
+      additionalProperties: false
+      required: [x, y, width, height]
+      description: Normalized 0-1 rectangle on the frame.
+      properties:
+        x: { type: number, minimum: 0, maximum: 1 }
+        y: { type: number, minimum: 0, maximum: 1 }
+        width: { type: number, minimum: 0, maximum: 1 }
+        height: { type: number, minimum: 0, maximum: 1 }
+    SmartEditType:
+      type: string
+      enum: [change, remove, outfit, dialogue, regenerate]
+    SmartEditInput:
+      type: object
+      required: [type, startSec, endSec]
+      properties:
+        type:
+          $ref: "#/components/schemas/SmartEditType"
+        startSec: { type: number, minimum: 0 }
+        endSec: { type: number, minimum: 0 }
+        box:
+          oneOf:
+            - $ref: "#/components/schemas/SmartEditBox"
+            - type: "null"
+        instruction: { type: ["string", "null"], maxLength: 600 }
+        dialogueText: { type: ["string", "null"], maxLength: 600 }
+    SmartEditCreateInput:
+      allOf:
+        - $ref: "#/components/schemas/SmartEditInput"
+        - type: object
+          properties:
+            baseVersionId:
+              type: ["string", "null"]
+              description: The version the user marked the edit on; a different current version is a 409.
+            voice:
+              type: string
+              enum: [alloy, echo, fable, onyx, nova, shimmer]
+              description: Dialogue edits only. Omit to use the Brand Kit voice.
+            consent:
+              type: boolean
+              description: Dialogue edits only; confirms permission to make the person say the new line.
+    SmartEditQuote:
+      type: object
+      required: [credits, lines]
+      properties:
+        credits: { type: number }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [rateKey, quantity, credits]
+            properties:
+              rateKey: { type: string }
+              quantity: { type: number }
+              credits: { type: number }
+    SmartEditVersion:
+      type: object
+      required: [id, path, thumbnailPath, durationSec, createdAt, editId, label]
+      properties:
+        id: { type: string }
+        path: { type: string }
+        thumbnailPath: { type: ["string", "null"] }
+        durationSec: { type: number }
+        createdAt: { type: string }
+        editId: { type: ["string", "null"] }
+        label: { type: string }
+    SmartEditAttemptView:
+      type: object
+      required: [id, type, status, startSec, endSec, box, instruction, dialogueText, baseVersionId, cutPath, startFramePath, editedStartFramePath, clipPath, childJobId, stage, error, resultVersionId, createdAt]
+      properties:
+        id: { type: string }
+        type:
+          $ref: "#/components/schemas/SmartEditType"
+        status: { type: string, enum: [generating, ready, failed, approved, discarded] }
+        startSec: { type: number }
+        endSec: { type: number }
+        box:
+          oneOf:
+            - $ref: "#/components/schemas/SmartEditBox"
+            - type: "null"
+        instruction: { type: string }
+        dialogueText: { type: ["string", "null"] }
+        baseVersionId: { type: string }
+        cutPath: { type: string }
+        startFramePath: { type: string }
+        editedStartFramePath: { type: ["string", "null"] }
+        clipPath: { type: ["string", "null"] }
+        childJobId: { type: ["integer", "null"] }
+        stage: { type: ["string", "null"] }
+        error: { type: ["string", "null"] }
+        resultVersionId: { type: ["string", "null"] }
+        createdAt: { type: string }
+    SmartEditState:
+      type: object
+      required: [jobId, currentVersionId, currentVideoPath, versions, edits, limits]
+      properties:
+        jobId: { type: integer }
+        currentVersionId: { type: string }
+        currentVideoPath: { type: ["string", "null"] }
+        versions:
+          type: array
+          description: The original first, then approved versions (newest last).
+          items:
+            $ref: "#/components/schemas/SmartEditVersion"
+        edits:
+          type: array
+          description: Newest first.
+          items:
+            $ref: "#/components/schemas/SmartEditAttemptView"
+        limits:
+          type: object
+          required: [minSeconds, maxSeconds, keepVersions]
+          properties:
+            minSeconds: { type: number }
+            maxSeconds: { type: number }
+            keepVersions: { type: integer }
     GuidedStoryReferenceInspectInput:
       type: object
       additionalProperties: false
@@ -22813,6 +23137,9 @@ components:
         videoPath:
           type: ["string", "null"]
           description: Immutable output produced by this job; serve via /api/storage{videoPath}.
+        smartEditVersionId:
+          type: ["string", "null"]
+          description: Current Smart Edit version ("v0" is the original); null before any edit.
         currentVideoPath:
           type: ["string", "null"]
           description: >-

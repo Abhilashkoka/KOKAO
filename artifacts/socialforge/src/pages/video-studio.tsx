@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DirectedVideoPanel } from "@/components/directed-video-panel";
 import { VideoDownloadButton } from "@/components/video-download-button";
 import { CoverStudioDialog } from "@/components/cover-studio-dialog";
+import { SmartEditDialog } from "@/components/smart-edit-dialog";
 import {
   buildDirectedVideoPayload,
   directedBlockReason,
@@ -211,6 +212,7 @@ import {
   RotateCcw,
   Wrench,
   Speech,
+  Scissors,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
@@ -1102,6 +1104,7 @@ export function VideoStudioPage() {
   };
 
   const [saveOpen, setSaveOpen] = useState(false);
+  const [smartEditOpen, setSmartEditOpen] = useState(false);
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
   const [saveCaption, setSaveCaption] = useState("");
@@ -7522,6 +7525,7 @@ export function VideoStudioPage() {
                   </div>
                 )}
                 {!activeJob.repair &&
+                  !activeJob.smartEditVersionId &&
                   activeJob.currentVideoPath &&
                   activeJob.currentVideoPath !== activeJob.videoPath && (
                     <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -7570,7 +7574,28 @@ export function VideoStudioPage() {
                     Includes associated generated images, characters, and video.
                   </p>
                 </div>
+                {activeJob.smartEditVersionId && activeJob.smartEditVersionId !== "v0" && (
+                  <p className="text-xs text-muted-foreground" data-testid="text-smart-edit-current">
+                    Showing your edited version. Earlier versions are in Edit → Versions.
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-2">
+                  {!activeJob.repair && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setSmartEditOpen(true)}
+                      data-testid="button-smart-edit"
+                    >
+                      <Scissors className="h-4 w-4 mr-2" /> Edit
+                    </Button>
+                  )}
+                  {smartEditOpen && (
+                    <SmartEditDialog
+                      open={smartEditOpen}
+                      onOpenChange={setSmartEditOpen}
+                      job={activeJob}
+                    />
+                  )}
                   {activeJob.savedContentItemId ? (
                     <Badge
                       variant="secondary"

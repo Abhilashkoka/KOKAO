@@ -450,6 +450,10 @@ import type {
   SetVoiceCloneProviderKeyRequest,
   SignupCreditSettingsInput,
   SignupCreditSettingsView,
+  SmartEditCreateInput,
+  SmartEditInput,
+  SmartEditQuote,
+  SmartEditState,
   SocialCredentialStatus,
   SpokespersonScriptRequest,
   SpokespersonScriptResult,
@@ -22707,6 +22711,441 @@ export const useGenerateVideoCoverCandidates = <TError = ErrorType<ErrorEnvelope
         TContext
       > => {
       return useMutation(getGenerateVideoCoverCandidatesMutationOptions(options));
+    }
+
+export const getGetSmartEditUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/smart-edit`
+}
+
+/**
+ * @summary Smart Edit state of a finished video (versions and edit attempts)
+ */
+export const getSmartEdit = async (jobId: number, options?: RequestInit): Promise<SmartEditState> => {
+
+  return customFetch<SmartEditState>(getGetSmartEditUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSmartEditQueryKey = (jobId: number,) => {
+    return [
+    `/api/ai/video-jobs/${jobId}/smart-edit`
+    ] as const;
+    }
+
+
+export const getGetSmartEditQueryOptions = <TData = Awaited<ReturnType<typeof getSmartEdit>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSmartEdit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSmartEditQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSmartEdit>>> = ({ signal }) => getSmartEdit(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSmartEdit>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSmartEditQueryResult = NonNullable<Awaited<ReturnType<typeof getSmartEdit>>>
+export type GetSmartEditQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Smart Edit state of a finished video (versions and edit attempts)
+ */
+
+export function useGetSmartEdit<TData = Awaited<ReturnType<typeof getSmartEdit>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSmartEdit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSmartEditQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getQuoteSmartEditUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/smart-edit/quote`
+}
+
+/**
+ * @summary Credits for one Smart Edit attempt
+ */
+export const quoteSmartEdit = async (jobId: number,
+    smartEditInput: SmartEditInput, options?: RequestInit): Promise<SmartEditQuote> => {
+
+  return customFetch<SmartEditQuote>(getQuoteSmartEditUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(smartEditInput)
+  }
+);}
+
+
+
+
+export const getQuoteSmartEditMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof quoteSmartEdit>>, TError,{jobId: number;data: BodyType<SmartEditInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof quoteSmartEdit>>, TError,{jobId: number;data: BodyType<SmartEditInput>}, TContext> => {
+
+const mutationKey = ['quoteSmartEdit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof quoteSmartEdit>>, {jobId: number;data: BodyType<SmartEditInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  quoteSmartEdit(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type QuoteSmartEditMutationResult = NonNullable<Awaited<ReturnType<typeof quoteSmartEdit>>>
+    export type QuoteSmartEditMutationBody = BodyType<SmartEditInput>
+    export type QuoteSmartEditMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Credits for one Smart Edit attempt
+ */
+export const useQuoteSmartEdit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof quoteSmartEdit>>, TError,{jobId: number;data: BodyType<SmartEditInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof quoteSmartEdit>>,
+        TError,
+        {jobId: number;data: BodyType<SmartEditInput>},
+        TContext
+      > => {
+      return useMutation(getQuoteSmartEditMutationOptions(options));
+    }
+
+export const getCreateSmartEditUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/smart-edit/edits`
+}
+
+/**
+ * @summary Cut a range and regenerate only that cut
+ */
+export const createSmartEdit = async (jobId: number,
+    smartEditCreateInput: SmartEditCreateInput, options?: RequestInit): Promise<SmartEditState> => {
+
+  return customFetch<SmartEditState>(getCreateSmartEditUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(smartEditCreateInput)
+  }
+);}
+
+
+
+
+export const getCreateSmartEditMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSmartEdit>>, TError,{jobId: number;data: BodyType<SmartEditCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSmartEdit>>, TError,{jobId: number;data: BodyType<SmartEditCreateInput>}, TContext> => {
+
+const mutationKey = ['createSmartEdit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSmartEdit>>, {jobId: number;data: BodyType<SmartEditCreateInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  createSmartEdit(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSmartEditMutationResult = NonNullable<Awaited<ReturnType<typeof createSmartEdit>>>
+    export type CreateSmartEditMutationBody = BodyType<SmartEditCreateInput>
+    export type CreateSmartEditMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Cut a range and regenerate only that cut
+ */
+export const useCreateSmartEdit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSmartEdit>>, TError,{jobId: number;data: BodyType<SmartEditCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSmartEdit>>,
+        TError,
+        {jobId: number;data: BodyType<SmartEditCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSmartEditMutationOptions(options));
+    }
+
+export const getApproveSmartEditUrl = (jobId: number,
+    editId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/smart-edit/edits/${editId}/approve`
+}
+
+/**
+ * @summary Approve a regenerated cut and stitch it into a new version
+ */
+export const approveSmartEdit = async (jobId: number,
+    editId: string, options?: RequestInit): Promise<SmartEditState> => {
+
+  return customFetch<SmartEditState>(getApproveSmartEditUrl(jobId,editId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApproveSmartEditMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveSmartEdit>>, TError,{jobId: number;editId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveSmartEdit>>, TError,{jobId: number;editId: string}, TContext> => {
+
+const mutationKey = ['approveSmartEdit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveSmartEdit>>, {jobId: number;editId: string}> = (props) => {
+          const {jobId,editId} = props ?? {};
+
+          return  approveSmartEdit(jobId,editId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveSmartEditMutationResult = NonNullable<Awaited<ReturnType<typeof approveSmartEdit>>>
+
+    export type ApproveSmartEditMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Approve a regenerated cut and stitch it into a new version
+ */
+export const useApproveSmartEdit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveSmartEdit>>, TError,{jobId: number;editId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveSmartEdit>>,
+        TError,
+        {jobId: number;editId: string},
+        TContext
+      > => {
+      return useMutation(getApproveSmartEditMutationOptions(options));
+    }
+
+export const getDiscardSmartEditUrl = (jobId: number,
+    editId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/smart-edit/edits/${editId}/discard`
+}
+
+/**
+ * @summary Discard a regenerated cut
+ */
+export const discardSmartEdit = async (jobId: number,
+    editId: string, options?: RequestInit): Promise<SmartEditState> => {
+
+  return customFetch<SmartEditState>(getDiscardSmartEditUrl(jobId,editId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDiscardSmartEditMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof discardSmartEdit>>, TError,{jobId: number;editId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof discardSmartEdit>>, TError,{jobId: number;editId: string}, TContext> => {
+
+const mutationKey = ['discardSmartEdit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof discardSmartEdit>>, {jobId: number;editId: string}> = (props) => {
+          const {jobId,editId} = props ?? {};
+
+          return  discardSmartEdit(jobId,editId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DiscardSmartEditMutationResult = NonNullable<Awaited<ReturnType<typeof discardSmartEdit>>>
+
+    export type DiscardSmartEditMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Discard a regenerated cut
+ */
+export const useDiscardSmartEdit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof discardSmartEdit>>, TError,{jobId: number;editId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof discardSmartEdit>>,
+        TError,
+        {jobId: number;editId: string},
+        TContext
+      > => {
+      return useMutation(getDiscardSmartEditMutationOptions(options));
+    }
+
+export const getRestoreSmartEditVersionUrl = (jobId: number,
+    versionId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/smart-edit/versions/${versionId}/restore`
+}
+
+/**
+ * @summary Make an earlier version current
+ */
+export const restoreSmartEditVersion = async (jobId: number,
+    versionId: string, options?: RequestInit): Promise<SmartEditState> => {
+
+  return customFetch<SmartEditState>(getRestoreSmartEditVersionUrl(jobId,versionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRestoreSmartEditVersionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreSmartEditVersion>>, TError,{jobId: number;versionId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof restoreSmartEditVersion>>, TError,{jobId: number;versionId: string}, TContext> => {
+
+const mutationKey = ['restoreSmartEditVersion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof restoreSmartEditVersion>>, {jobId: number;versionId: string}> = (props) => {
+          const {jobId,versionId} = props ?? {};
+
+          return  restoreSmartEditVersion(jobId,versionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RestoreSmartEditVersionMutationResult = NonNullable<Awaited<ReturnType<typeof restoreSmartEditVersion>>>
+
+    export type RestoreSmartEditVersionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Make an earlier version current
+ */
+export const useRestoreSmartEditVersion = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreSmartEditVersion>>, TError,{jobId: number;versionId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof restoreSmartEditVersion>>,
+        TError,
+        {jobId: number;versionId: string},
+        TContext
+      > => {
+      return useMutation(getRestoreSmartEditVersionMutationOptions(options));
     }
 
 export const getSetVideoCoverUrl = (jobId: number,) => {

@@ -6290,6 +6290,169 @@ export interface GuidedStoryReferenceLibrary {
   items: GuidedStoryUploadReference[];
 }
 
+/**
+ * Normalized 0-1 rectangle on the frame.
+ */
+export interface SmartEditBox {
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  x: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  y: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  width: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  height: number;
+}
+
+export type SmartEditType = typeof SmartEditType[keyof typeof SmartEditType];
+
+
+export const SmartEditType = {
+  change: 'change',
+  remove: 'remove',
+  outfit: 'outfit',
+  dialogue: 'dialogue',
+  regenerate: 'regenerate',
+} as const;
+
+export interface SmartEditInput {
+  type: SmartEditType;
+  /** @minimum 0 */
+  startSec: number;
+  /** @minimum 0 */
+  endSec: number;
+  box?: SmartEditBox | null;
+  /**
+     * @maxLength 600
+     * @nullable
+     */
+  instruction?: string | null;
+  /**
+     * @maxLength 600
+     * @nullable
+     */
+  dialogueText?: string | null;
+}
+
+/**
+ * Dialogue edits only. Omit to use the Brand Kit voice.
+ */
+export type SmartEditCreateInputVoice = typeof SmartEditCreateInputVoice[keyof typeof SmartEditCreateInputVoice];
+
+
+export const SmartEditCreateInputVoice = {
+  alloy: 'alloy',
+  echo: 'echo',
+  fable: 'fable',
+  onyx: 'onyx',
+  nova: 'nova',
+  shimmer: 'shimmer',
+} as const;
+
+export type SmartEditCreateInput = SmartEditInput & ({
+  /**
+     * The version the user marked the edit on; a different current version is a 409.
+     * @nullable
+     */
+  baseVersionId?: string | null;
+  /** Dialogue edits only. Omit to use the Brand Kit voice. */
+  voice?: SmartEditCreateInputVoice;
+  /** Dialogue edits only; confirms permission to make the person say the new line. */
+  consent?: boolean;
+});
+
+export type SmartEditQuoteLinesItem = {
+  rateKey: string;
+  quantity: number;
+  credits: number;
+};
+
+export interface SmartEditQuote {
+  credits: number;
+  lines: SmartEditQuoteLinesItem[];
+}
+
+export interface SmartEditVersion {
+  id: string;
+  path: string;
+  /** @nullable */
+  thumbnailPath: string | null;
+  durationSec: number;
+  createdAt: string;
+  /** @nullable */
+  editId: string | null;
+  label: string;
+}
+
+export type SmartEditAttemptViewStatus = typeof SmartEditAttemptViewStatus[keyof typeof SmartEditAttemptViewStatus];
+
+
+export const SmartEditAttemptViewStatus = {
+  generating: 'generating',
+  ready: 'ready',
+  failed: 'failed',
+  approved: 'approved',
+  discarded: 'discarded',
+} as const;
+
+export interface SmartEditAttemptView {
+  id: string;
+  type: SmartEditType;
+  status: SmartEditAttemptViewStatus;
+  startSec: number;
+  endSec: number;
+  box: SmartEditBox | null;
+  instruction: string;
+  /** @nullable */
+  dialogueText: string | null;
+  baseVersionId: string;
+  cutPath: string;
+  startFramePath: string;
+  /** @nullable */
+  editedStartFramePath: string | null;
+  /** @nullable */
+  clipPath: string | null;
+  /** @nullable */
+  childJobId: number | null;
+  /** @nullable */
+  stage: string | null;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  resultVersionId: string | null;
+  createdAt: string;
+}
+
+export type SmartEditStateLimits = {
+  minSeconds: number;
+  maxSeconds: number;
+  keepVersions: number;
+};
+
+export interface SmartEditState {
+  jobId: number;
+  currentVersionId: string;
+  /** @nullable */
+  currentVideoPath: string | null;
+  /** The original first, then approved versions (newest last). */
+  versions: SmartEditVersion[];
+  /** Newest first. */
+  edits: SmartEditAttemptView[];
+  limits: SmartEditStateLimits;
+}
+
 export interface GuidedStoryReferenceInspectInput {
   /**
      * @minLength 1
@@ -8469,6 +8632,11 @@ export interface VideoJob {
      * @nullable
      */
   videoPath?: string | null;
+  /**
+     * Current Smart Edit version ("v0" is the original); null before any edit.
+     * @nullable
+     */
+  smartEditVersionId?: string | null;
   /**
      * Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source's immutable videoPath.
      * @nullable

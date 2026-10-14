@@ -90,6 +90,11 @@ export interface VideoJob {
      */
   videoPath?: string | null;
   /**
+     * Current Smart Edit version ("v0" is the original); null before any edit.
+     * @nullable
+     */
+  smartEditVersionId?: string | null;
+  /**
      * Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source's immutable videoPath.
      * @nullable
      */

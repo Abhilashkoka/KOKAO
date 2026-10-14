@@ -16478,6 +16478,7 @@ export const GenerateVideoResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -25057,6 +25058,7 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -25694,6 +25696,7 @@ export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -26296,6 +26299,7 @@ export const StartGuidedStoryReferenceOperationResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -26909,6 +26913,7 @@ export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -27607,6 +27612,7 @@ export const ConfirmGuidedStoryDialogueReplayResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -28599,6 +28605,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -29193,6 +29200,7 @@ export const GetVideoJobResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -29787,6 +29795,7 @@ export const CancelVideoJobResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -30385,6 +30394,7 @@ export const RetryVideoJobResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -30979,6 +30989,7 @@ export const RestartVideoJobFreshResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -31577,6 +31588,7 @@ export const RepairVideoJobResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -32198,6 +32210,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -32804,6 +32817,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -33399,6 +33413,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -34006,6 +34021,7 @@ export const CorrectGuidedStorySceneResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -34600,6 +34616,7 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -35194,6 +35211,7 @@ export const CancelGuidedStoryPreviewRenderResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -35792,6 +35810,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -36389,6 +36408,7 @@ export const RejectVideoStoryboardResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -36982,6 +37002,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -37575,6 +37596,7 @@ export const DismissUnrecoverableVideoStoryboardResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
@@ -38087,6 +38109,437 @@ export const GenerateVideoCoverCandidatesResponse = zod.object({
 
 
 /**
+ * @summary Smart Edit state of a finished video (versions and edit attempts)
+ */
+export const GetSmartEditParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const getSmartEditResponseEditsItemBoxOneXMin = 0;
+export const getSmartEditResponseEditsItemBoxOneXMax = 1;
+
+export const getSmartEditResponseEditsItemBoxOneYMin = 0;
+export const getSmartEditResponseEditsItemBoxOneYMax = 1;
+
+export const getSmartEditResponseEditsItemBoxOneWidthMin = 0;
+export const getSmartEditResponseEditsItemBoxOneWidthMax = 1;
+
+export const getSmartEditResponseEditsItemBoxOneHeightMin = 0;
+export const getSmartEditResponseEditsItemBoxOneHeightMax = 1;
+
+
+
+export const GetSmartEditResponse = zod.object({
+  "jobId": zod.number(),
+  "currentVersionId": zod.string(),
+  "currentVideoPath": zod.string().nullable(),
+  "versions": zod.array(zod.object({
+  "id": zod.string(),
+  "path": zod.string(),
+  "thumbnailPath": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "createdAt": zod.string(),
+  "editId": zod.string().nullable(),
+  "label": zod.string()
+})).describe('The original first, then approved versions (newest last).'),
+  "edits": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['change', 'remove', 'outfit', 'dialogue', 'regenerate']),
+  "status": zod.enum(['generating', 'ready', 'failed', 'approved', 'discarded']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "box": zod.union([zod.object({
+  "x": zod.number().min(getSmartEditResponseEditsItemBoxOneXMin).max(getSmartEditResponseEditsItemBoxOneXMax),
+  "y": zod.number().min(getSmartEditResponseEditsItemBoxOneYMin).max(getSmartEditResponseEditsItemBoxOneYMax),
+  "width": zod.number().min(getSmartEditResponseEditsItemBoxOneWidthMin).max(getSmartEditResponseEditsItemBoxOneWidthMax),
+  "height": zod.number().min(getSmartEditResponseEditsItemBoxOneHeightMin).max(getSmartEditResponseEditsItemBoxOneHeightMax)
+}).describe('Normalized 0-1 rectangle on the frame.'),zod.null()]),
+  "instruction": zod.string(),
+  "dialogueText": zod.string().nullable(),
+  "baseVersionId": zod.string(),
+  "cutPath": zod.string(),
+  "startFramePath": zod.string(),
+  "editedStartFramePath": zod.string().nullable(),
+  "clipPath": zod.string().nullable(),
+  "childJobId": zod.number().nullable(),
+  "stage": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "resultVersionId": zod.string().nullable(),
+  "createdAt": zod.string()
+})).describe('Newest first.'),
+  "limits": zod.object({
+  "minSeconds": zod.number(),
+  "maxSeconds": zod.number(),
+  "keepVersions": zod.number()
+})
+})
+
+
+/**
+ * @summary Credits for one Smart Edit attempt
+ */
+export const QuoteSmartEditParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const quoteSmartEditBodyStartSecMin = 0;
+
+export const quoteSmartEditBodyEndSecMin = 0;
+
+export const quoteSmartEditBodyBoxOneXMin = 0;
+export const quoteSmartEditBodyBoxOneXMax = 1;
+
+export const quoteSmartEditBodyBoxOneYMin = 0;
+export const quoteSmartEditBodyBoxOneYMax = 1;
+
+export const quoteSmartEditBodyBoxOneWidthMin = 0;
+export const quoteSmartEditBodyBoxOneWidthMax = 1;
+
+export const quoteSmartEditBodyBoxOneHeightMin = 0;
+export const quoteSmartEditBodyBoxOneHeightMax = 1;
+
+export const quoteSmartEditBodyInstructionMax = 600;
+
+export const quoteSmartEditBodyDialogueTextMax = 600;
+
+
+
+export const QuoteSmartEditBody = zod.object({
+  "type": zod.enum(['change', 'remove', 'outfit', 'dialogue', 'regenerate']),
+  "startSec": zod.number().min(quoteSmartEditBodyStartSecMin),
+  "endSec": zod.number().min(quoteSmartEditBodyEndSecMin),
+  "box": zod.union([zod.object({
+  "x": zod.number().min(quoteSmartEditBodyBoxOneXMin).max(quoteSmartEditBodyBoxOneXMax),
+  "y": zod.number().min(quoteSmartEditBodyBoxOneYMin).max(quoteSmartEditBodyBoxOneYMax),
+  "width": zod.number().min(quoteSmartEditBodyBoxOneWidthMin).max(quoteSmartEditBodyBoxOneWidthMax),
+  "height": zod.number().min(quoteSmartEditBodyBoxOneHeightMin).max(quoteSmartEditBodyBoxOneHeightMax)
+}).describe('Normalized 0-1 rectangle on the frame.'),zod.null()]).optional(),
+  "instruction": zod.string().max(quoteSmartEditBodyInstructionMax).nullish(),
+  "dialogueText": zod.string().max(quoteSmartEditBodyDialogueTextMax).nullish()
+})
+
+export const QuoteSmartEditResponse = zod.object({
+  "credits": zod.number(),
+  "lines": zod.array(zod.object({
+  "rateKey": zod.string(),
+  "quantity": zod.number(),
+  "credits": zod.number()
+}))
+})
+
+
+/**
+ * @summary Cut a range and regenerate only that cut
+ */
+export const CreateSmartEditParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const createSmartEditBodyOneStartSecMin = 0;
+
+export const createSmartEditBodyOneEndSecMin = 0;
+
+export const createSmartEditBodyOneBoxOneXMin = 0;
+export const createSmartEditBodyOneBoxOneXMax = 1;
+
+export const createSmartEditBodyOneBoxOneYMin = 0;
+export const createSmartEditBodyOneBoxOneYMax = 1;
+
+export const createSmartEditBodyOneBoxOneWidthMin = 0;
+export const createSmartEditBodyOneBoxOneWidthMax = 1;
+
+export const createSmartEditBodyOneBoxOneHeightMin = 0;
+export const createSmartEditBodyOneBoxOneHeightMax = 1;
+
+export const createSmartEditBodyOneInstructionMax = 600;
+
+export const createSmartEditBodyOneDialogueTextMax = 600;
+
+
+
+export const CreateSmartEditBody = zod.object({
+  "type": zod.enum(['change', 'remove', 'outfit', 'dialogue', 'regenerate']),
+  "startSec": zod.number().min(createSmartEditBodyOneStartSecMin),
+  "endSec": zod.number().min(createSmartEditBodyOneEndSecMin),
+  "box": zod.union([zod.object({
+  "x": zod.number().min(createSmartEditBodyOneBoxOneXMin).max(createSmartEditBodyOneBoxOneXMax),
+  "y": zod.number().min(createSmartEditBodyOneBoxOneYMin).max(createSmartEditBodyOneBoxOneYMax),
+  "width": zod.number().min(createSmartEditBodyOneBoxOneWidthMin).max(createSmartEditBodyOneBoxOneWidthMax),
+  "height": zod.number().min(createSmartEditBodyOneBoxOneHeightMin).max(createSmartEditBodyOneBoxOneHeightMax)
+}).describe('Normalized 0-1 rectangle on the frame.'),zod.null()]).optional(),
+  "instruction": zod.string().max(createSmartEditBodyOneInstructionMax).nullish(),
+  "dialogueText": zod.string().max(createSmartEditBodyOneDialogueTextMax).nullish()
+}).and(zod.object({
+  "baseVersionId": zod.string().nullish().describe('The version the user marked the edit on; a different current version is a 409.'),
+  "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).optional().describe('Dialogue edits only. Omit to use the Brand Kit voice.'),
+  "consent": zod.boolean().optional().describe('Dialogue edits only; confirms permission to make the person say the new line.')
+}))
+
+export const createSmartEditResponseEditsItemBoxOneXMin = 0;
+export const createSmartEditResponseEditsItemBoxOneXMax = 1;
+
+export const createSmartEditResponseEditsItemBoxOneYMin = 0;
+export const createSmartEditResponseEditsItemBoxOneYMax = 1;
+
+export const createSmartEditResponseEditsItemBoxOneWidthMin = 0;
+export const createSmartEditResponseEditsItemBoxOneWidthMax = 1;
+
+export const createSmartEditResponseEditsItemBoxOneHeightMin = 0;
+export const createSmartEditResponseEditsItemBoxOneHeightMax = 1;
+
+
+
+export const CreateSmartEditResponse = zod.object({
+  "jobId": zod.number(),
+  "currentVersionId": zod.string(),
+  "currentVideoPath": zod.string().nullable(),
+  "versions": zod.array(zod.object({
+  "id": zod.string(),
+  "path": zod.string(),
+  "thumbnailPath": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "createdAt": zod.string(),
+  "editId": zod.string().nullable(),
+  "label": zod.string()
+})).describe('The original first, then approved versions (newest last).'),
+  "edits": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['change', 'remove', 'outfit', 'dialogue', 'regenerate']),
+  "status": zod.enum(['generating', 'ready', 'failed', 'approved', 'discarded']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "box": zod.union([zod.object({
+  "x": zod.number().min(createSmartEditResponseEditsItemBoxOneXMin).max(createSmartEditResponseEditsItemBoxOneXMax),
+  "y": zod.number().min(createSmartEditResponseEditsItemBoxOneYMin).max(createSmartEditResponseEditsItemBoxOneYMax),
+  "width": zod.number().min(createSmartEditResponseEditsItemBoxOneWidthMin).max(createSmartEditResponseEditsItemBoxOneWidthMax),
+  "height": zod.number().min(createSmartEditResponseEditsItemBoxOneHeightMin).max(createSmartEditResponseEditsItemBoxOneHeightMax)
+}).describe('Normalized 0-1 rectangle on the frame.'),zod.null()]),
+  "instruction": zod.string(),
+  "dialogueText": zod.string().nullable(),
+  "baseVersionId": zod.string(),
+  "cutPath": zod.string(),
+  "startFramePath": zod.string(),
+  "editedStartFramePath": zod.string().nullable(),
+  "clipPath": zod.string().nullable(),
+  "childJobId": zod.number().nullable(),
+  "stage": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "resultVersionId": zod.string().nullable(),
+  "createdAt": zod.string()
+})).describe('Newest first.'),
+  "limits": zod.object({
+  "minSeconds": zod.number(),
+  "maxSeconds": zod.number(),
+  "keepVersions": zod.number()
+})
+})
+
+
+/**
+ * @summary Approve a regenerated cut and stitch it into a new version
+ */
+export const ApproveSmartEditParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "editId": zod.coerce.string()
+})
+
+export const approveSmartEditResponseEditsItemBoxOneXMin = 0;
+export const approveSmartEditResponseEditsItemBoxOneXMax = 1;
+
+export const approveSmartEditResponseEditsItemBoxOneYMin = 0;
+export const approveSmartEditResponseEditsItemBoxOneYMax = 1;
+
+export const approveSmartEditResponseEditsItemBoxOneWidthMin = 0;
+export const approveSmartEditResponseEditsItemBoxOneWidthMax = 1;
+
+export const approveSmartEditResponseEditsItemBoxOneHeightMin = 0;
+export const approveSmartEditResponseEditsItemBoxOneHeightMax = 1;
+
+
+
+export const ApproveSmartEditResponse = zod.object({
+  "jobId": zod.number(),
+  "currentVersionId": zod.string(),
+  "currentVideoPath": zod.string().nullable(),
+  "versions": zod.array(zod.object({
+  "id": zod.string(),
+  "path": zod.string(),
+  "thumbnailPath": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "createdAt": zod.string(),
+  "editId": zod.string().nullable(),
+  "label": zod.string()
+})).describe('The original first, then approved versions (newest last).'),
+  "edits": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['change', 'remove', 'outfit', 'dialogue', 'regenerate']),
+  "status": zod.enum(['generating', 'ready', 'failed', 'approved', 'discarded']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "box": zod.union([zod.object({
+  "x": zod.number().min(approveSmartEditResponseEditsItemBoxOneXMin).max(approveSmartEditResponseEditsItemBoxOneXMax),
+  "y": zod.number().min(approveSmartEditResponseEditsItemBoxOneYMin).max(approveSmartEditResponseEditsItemBoxOneYMax),
+  "width": zod.number().min(approveSmartEditResponseEditsItemBoxOneWidthMin).max(approveSmartEditResponseEditsItemBoxOneWidthMax),
+  "height": zod.number().min(approveSmartEditResponseEditsItemBoxOneHeightMin).max(approveSmartEditResponseEditsItemBoxOneHeightMax)
+}).describe('Normalized 0-1 rectangle on the frame.'),zod.null()]),
+  "instruction": zod.string(),
+  "dialogueText": zod.string().nullable(),
+  "baseVersionId": zod.string(),
+  "cutPath": zod.string(),
+  "startFramePath": zod.string(),
+  "editedStartFramePath": zod.string().nullable(),
+  "clipPath": zod.string().nullable(),
+  "childJobId": zod.number().nullable(),
+  "stage": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "resultVersionId": zod.string().nullable(),
+  "createdAt": zod.string()
+})).describe('Newest first.'),
+  "limits": zod.object({
+  "minSeconds": zod.number(),
+  "maxSeconds": zod.number(),
+  "keepVersions": zod.number()
+})
+})
+
+
+/**
+ * @summary Discard a regenerated cut
+ */
+export const DiscardSmartEditParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "editId": zod.coerce.string()
+})
+
+export const discardSmartEditResponseEditsItemBoxOneXMin = 0;
+export const discardSmartEditResponseEditsItemBoxOneXMax = 1;
+
+export const discardSmartEditResponseEditsItemBoxOneYMin = 0;
+export const discardSmartEditResponseEditsItemBoxOneYMax = 1;
+
+export const discardSmartEditResponseEditsItemBoxOneWidthMin = 0;
+export const discardSmartEditResponseEditsItemBoxOneWidthMax = 1;
+
+export const discardSmartEditResponseEditsItemBoxOneHeightMin = 0;
+export const discardSmartEditResponseEditsItemBoxOneHeightMax = 1;
+
+
+
+export const DiscardSmartEditResponse = zod.object({
+  "jobId": zod.number(),
+  "currentVersionId": zod.string(),
+  "currentVideoPath": zod.string().nullable(),
+  "versions": zod.array(zod.object({
+  "id": zod.string(),
+  "path": zod.string(),
+  "thumbnailPath": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "createdAt": zod.string(),
+  "editId": zod.string().nullable(),
+  "label": zod.string()
+})).describe('The original first, then approved versions (newest last).'),
+  "edits": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['change', 'remove', 'outfit', 'dialogue', 'regenerate']),
+  "status": zod.enum(['generating', 'ready', 'failed', 'approved', 'discarded']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "box": zod.union([zod.object({
+  "x": zod.number().min(discardSmartEditResponseEditsItemBoxOneXMin).max(discardSmartEditResponseEditsItemBoxOneXMax),
+  "y": zod.number().min(discardSmartEditResponseEditsItemBoxOneYMin).max(discardSmartEditResponseEditsItemBoxOneYMax),
+  "width": zod.number().min(discardSmartEditResponseEditsItemBoxOneWidthMin).max(discardSmartEditResponseEditsItemBoxOneWidthMax),
+  "height": zod.number().min(discardSmartEditResponseEditsItemBoxOneHeightMin).max(discardSmartEditResponseEditsItemBoxOneHeightMax)
+}).describe('Normalized 0-1 rectangle on the frame.'),zod.null()]),
+  "instruction": zod.string(),
+  "dialogueText": zod.string().nullable(),
+  "baseVersionId": zod.string(),
+  "cutPath": zod.string(),
+  "startFramePath": zod.string(),
+  "editedStartFramePath": zod.string().nullable(),
+  "clipPath": zod.string().nullable(),
+  "childJobId": zod.number().nullable(),
+  "stage": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "resultVersionId": zod.string().nullable(),
+  "createdAt": zod.string()
+})).describe('Newest first.'),
+  "limits": zod.object({
+  "minSeconds": zod.number(),
+  "maxSeconds": zod.number(),
+  "keepVersions": zod.number()
+})
+})
+
+
+/**
+ * @summary Make an earlier version current
+ */
+export const RestoreSmartEditVersionParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "versionId": zod.coerce.string()
+})
+
+export const restoreSmartEditVersionResponseEditsItemBoxOneXMin = 0;
+export const restoreSmartEditVersionResponseEditsItemBoxOneXMax = 1;
+
+export const restoreSmartEditVersionResponseEditsItemBoxOneYMin = 0;
+export const restoreSmartEditVersionResponseEditsItemBoxOneYMax = 1;
+
+export const restoreSmartEditVersionResponseEditsItemBoxOneWidthMin = 0;
+export const restoreSmartEditVersionResponseEditsItemBoxOneWidthMax = 1;
+
+export const restoreSmartEditVersionResponseEditsItemBoxOneHeightMin = 0;
+export const restoreSmartEditVersionResponseEditsItemBoxOneHeightMax = 1;
+
+
+
+export const RestoreSmartEditVersionResponse = zod.object({
+  "jobId": zod.number(),
+  "currentVersionId": zod.string(),
+  "currentVideoPath": zod.string().nullable(),
+  "versions": zod.array(zod.object({
+  "id": zod.string(),
+  "path": zod.string(),
+  "thumbnailPath": zod.string().nullable(),
+  "durationSec": zod.number(),
+  "createdAt": zod.string(),
+  "editId": zod.string().nullable(),
+  "label": zod.string()
+})).describe('The original first, then approved versions (newest last).'),
+  "edits": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['change', 'remove', 'outfit', 'dialogue', 'regenerate']),
+  "status": zod.enum(['generating', 'ready', 'failed', 'approved', 'discarded']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "box": zod.union([zod.object({
+  "x": zod.number().min(restoreSmartEditVersionResponseEditsItemBoxOneXMin).max(restoreSmartEditVersionResponseEditsItemBoxOneXMax),
+  "y": zod.number().min(restoreSmartEditVersionResponseEditsItemBoxOneYMin).max(restoreSmartEditVersionResponseEditsItemBoxOneYMax),
+  "width": zod.number().min(restoreSmartEditVersionResponseEditsItemBoxOneWidthMin).max(restoreSmartEditVersionResponseEditsItemBoxOneWidthMax),
+  "height": zod.number().min(restoreSmartEditVersionResponseEditsItemBoxOneHeightMin).max(restoreSmartEditVersionResponseEditsItemBoxOneHeightMax)
+}).describe('Normalized 0-1 rectangle on the frame.'),zod.null()]),
+  "instruction": zod.string(),
+  "dialogueText": zod.string().nullable(),
+  "baseVersionId": zod.string(),
+  "cutPath": zod.string(),
+  "startFramePath": zod.string(),
+  "editedStartFramePath": zod.string().nullable(),
+  "clipPath": zod.string().nullable(),
+  "childJobId": zod.number().nullable(),
+  "stage": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "resultVersionId": zod.string().nullable(),
+  "createdAt": zod.string()
+})).describe('Newest first.'),
+  "limits": zod.object({
+  "minSeconds": zod.number(),
+  "maxSeconds": zod.number(),
+  "keepVersions": zod.number()
+})
+})
+
+
+/**
  * Accepts any image already stored under this tenant — a candidate frame, a generated cover, or the user's own upload via the presigned upload flow. Propagates to the library copy when the video has been saved.
  * @summary Set the cover image shown for a finished video
  */
@@ -38299,6 +38752,7 @@ export const SetVideoCoverResponse = zod.object({
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "smartEditVersionId": zod.string().nullish().describe('Current Smart Edit version (\"v0\" is the original); null before any edit.'),
   "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
   "guidedStoryDraftId": zod.number().nullable().describe('Tenant-scoped Guided Story draft backing this job, when applicable.'),
   "guidedStoryDirectRender": zod.boolean().describe('True only for the immutable versioned direct-video Guided Story flow. False includes every legacy marker-absent storyboard job.'),
