@@ -5142,6 +5142,7 @@ router.patch(
       try {
         script = validateAndRepairGuidedScript(parsed.data.script, {
           durationSeconds: setup.durationSeconds,
+          allowNativeScriptDraft: true,
         }, setup.locale);
         const nativeScriptWarning = guidedStoryNativeScriptWarning(script, setup.locale);
         if (nativeScriptWarning && !script.warnings.includes(nativeScriptWarning)) {

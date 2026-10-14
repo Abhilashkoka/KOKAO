@@ -1661,6 +1661,8 @@ export function validateAndRepairGuidedScript(
     /** Product-hero: the opening may be a product-only hook. */
     allowProductOpening?: boolean;
     maxSceneSeconds?: number;
+    /** Keep repairable language failures visible in drafts, never in execution validation. */
+    allowNativeScriptDraft?: boolean;
   },
   locale?: string,
 ): GuidedStoryScript {
@@ -1817,7 +1819,13 @@ export function validateAndRepairGuidedScript(
   };
   if (locale) {
     const warning = guidedStoryNativeScriptWarning(script, locale);
-    if (warning) throw new VideoGenProviderError(warning);
+    if (warning && !constraints.allowNativeScriptDraft) throw new VideoGenProviderError(warning);
+    if (constraints.allowNativeScriptDraft) {
+      script.warnings = script.warnings.filter(
+        (item) => !/^\d+ spoken (?:line appears|lines appear) to be Romanized for /u.test(item),
+      );
+      if (warning) script.warnings.push(warning);
+    }
   }
   return script;
 }
@@ -1936,7 +1944,7 @@ export async function generateGuidedStoryScript(params: {
   try {
     script = validateAndRepairGuidedScript(
       parsed,
-      { ...params, requireOpeningBuildup: !longScenes, allowProductOpening: hero },
+      { ...params, requireOpeningBuildup: !longScenes, allowProductOpening: hero, allowNativeScriptDraft: true },
       params.locale,
     );
   } catch (error) {
@@ -1975,7 +1983,7 @@ export async function generateGuidedStoryScript(params: {
     }
     script = validateAndRepairGuidedScript(
       repaired,
-      { ...params, requireOpeningBuildup: !longScenes, allowProductOpening: hero },
+      { ...params, requireOpeningBuildup: !longScenes, allowProductOpening: hero, allowNativeScriptDraft: true },
       params.locale,
     );
     if (script.roles.length !== (parsed.roles as unknown[]).length) {
@@ -1984,7 +1992,11 @@ export async function generateGuidedStoryScript(params: {
       );
     }
   }
-  assertGeneratedDisplayMetadata(script, params.locale);
+  // A language-invalid draft must remain editable even if its display-only
+  // pronunciation/meaning is incomplete. Approval and execution validate separately.
+  if (!guidedStoryNativeScriptWarning(script, params.locale)) {
+    assertGeneratedDisplayMetadata(script, params.locale);
+  }
   script = sanitizeShots(sanitizeGuidedScriptProducts(script, params.products), params.products);
   // Product hero: when too little of the video shows the product, ask once for
   // a rework that keeps the timeline, cast and lines but re-shoots scenes

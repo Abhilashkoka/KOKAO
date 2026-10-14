@@ -38,6 +38,44 @@ describe("Guided Story locale prompt contract", () => {
     governedPrompt.mockResolvedValue({ text: "Governed story policy." });
   });
 
+  it("returns Romanized Telugu as an editable, unapproved draft rather than discarding it", async () => {
+    const screenplay = {
+      title: "A routine", logline: "A quiet evening.",
+      roles: [{ id: "role-1", name: "A", description: "A fictional person" }],
+      scenes: [{
+        id: "scene-1", startMs: 0, endMs: 30_000,
+        visualDirection: "A person watches the evening sky by the window.",
+        roleIds: ["role-1"],
+        lines: [{
+          id: "line-1", kind: "narration", ownerRoleId: null,
+          text: "Manam kalisi munduku sagudam.", startMs: 0, endMs: 30_000,
+        }],
+      }],
+      warnings: [],
+    };
+    create.mockResolvedValueOnce(completion(screenplay));
+    const result = await generateGuidedStoryScript({
+      tenantId: 1, tenantAiModel: "test", genre: "drama",
+      platform: guidedStoryPlatform("tiktok")!, durationSeconds: 30,
+      maxSceneSeconds: 30, locale: "te", topic: "An evening routine",
+      brandConstraints: null,
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(result.script.scenes[0]!.lines[0]!.text).toBe("Manam kalisi munduku sagudam.");
+    expect(result.script.warnings.some((warning) => warning.includes("Romanized for Telugu"))).toBe(true);
+    // Draft recovery does not relax the default execution validation.
+    expect(() => validateAndRepairGuidedScript(
+      result.script as unknown as Record<string, unknown>, { durationSeconds: 30 }, "te",
+    )).toThrow(/Romanized/);
+    const edited = structuredClone(result.script);
+    edited.scenes[0]!.lines[0]!.text = "మనం కలిసి ముందుకు సాగుదాం.";
+    const saved = validateAndRepairGuidedScript(
+      edited as unknown as Record<string, unknown>,
+      { durationSeconds: 30, allowNativeScriptDraft: true }, "te",
+    );
+    expect(saved.warnings.some((warning) => warning.includes("Romanized for Telugu"))).toBe(false);
+  });
+
   it.each(["visual-only", "dialogue", "cast", "timing"])(
     "accepts only source-preserving product hero reworks (%s)",
     async (change) => {

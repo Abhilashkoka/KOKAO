@@ -150,3 +150,4 @@
 - [Long native video scenes](long-native-video-scenes.md) — use selected models' verified long-scene capabilities with dialogue and continuity, rather than always splitting into short clips.
 - [Photo description pricing](photo-description-pricing.md) — owner requires an independent AI photo description rate, not caption or image pricing.
 - [Guided Story pacing](guided-script-pacing.md) — selected runtime includes visual beats and pauses; speech must fit but need not fill a minimum fraction.
+- [Editable language failures](editable-language-failures.md) — keep recoverable Guided language errors visible for editing without relaxing execution checks.
