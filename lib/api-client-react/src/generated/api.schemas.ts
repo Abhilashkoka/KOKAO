@@ -5359,6 +5359,20 @@ export const ImageRequestSize = {
   '1024x1536': '1024x1536',
 } as const;
 
+/**
+ * Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.
+ * @nullable
+ */
+export type ImageRequestTryOn = {
+  /** @maxLength 500 */
+  outfitImagePath: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  modelImagePath?: string | null;
+} | null;
+
 export type LayerPlanLayerRole = typeof LayerPlanLayerRole[keyof typeof LayerPlanLayerRole];
 
 
@@ -5409,6 +5423,11 @@ export interface ImageRequest {
      * @nullable
      */
   contentId?: number | null;
+  /**
+     * Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.
+     * @nullable
+     */
+  tryOn?: ImageRequestTryOn;
   /**
      * Optional object-storage path (/objects/<tenantId>/uploads/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.
      * @nullable
@@ -9632,6 +9651,22 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /** Showcase reel (image_to_video only): animate each of 2-6 source images as its own clip, in order, joined into one video. Each clip is a separate generation and is priced as such. */
+  photoClips?: boolean;
+  /**
+     * Reel timing — seconds per bar of the uploaded track; clips and slides are cut to whole bars.
+     * @minimum 0.5
+     * @maximum 8
+     * @nullable
+     */
+  beatSec?: number | null;
+  /**
+     * Reel timing — first downbeat in the uploaded track; the music starts there.
+     * @minimum 0
+     * @maximum 600
+     * @nullable
+     */
+  musicStartSec?: number | null;
   /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
   reviewStoryboard?: boolean;
   /**

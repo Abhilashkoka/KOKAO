@@ -145,6 +145,7 @@ import { guidedSceneDurations, guidedUsesSavedVoice, guidedSavedVoiceSceneError 
 import {
   clampSceneDuration,
   clipShotCount,
+  MAX_REEL_CLIPS,
   decideShotCountFromBrief,
 } from "../lib/videoGen/clipStoryboard";
 import {
@@ -11069,6 +11070,18 @@ async function generateVideoHandler(
       .json({ error: "A source image is required for image-to-video." });
     return;
   }
+  if (body.photoClips) {
+    // Showcase reel: one clip per photo. Every photo is its own paid
+    // generation, so the count is bounded and checked before any funding.
+    if (body.engine !== "image_to_video" || body.directedVideo) {
+      res.status(400).json({ error: "A showcase reel animates photos: use image-to-video without direction." });
+      return;
+    }
+    if (sourceImagePaths.length < 2 || sourceImagePaths.length > MAX_REEL_CLIPS) {
+      res.status(400).json({ error: `A showcase reel needs 2 to ${MAX_REEL_CLIPS} photos.` });
+      return;
+    }
+  }
   if (body.engine === "slideshow") {
     if (sourceImagePaths.length === 0) {
       res
@@ -11570,6 +11583,7 @@ async function generateVideoHandler(
     // would render a video the user did not ask for and charge them for it.
     if (
       body.engine === "image_to_video" &&
+      !body.photoClips &&
       sourceImagePaths.length > 1 &&
       !supportsEndFrame(picked)
     ) {
@@ -12679,7 +12693,17 @@ async function generateVideoHandler(
               { tenantId: req.tenantId, funding: creditSnapshot, operationKey: enqueueOperationKey },
             )
           : clipShotCount(body.shotCount)
-        : 1,
+        : body.engine === "image_to_video" && body.photoClips
+          ? sourceImagePaths.length
+          : 1,
+    // Showcase reel timing. Only meaningful for photo clips and slideshows.
+    ...(body.engine === "image_to_video" && body.photoClips ? { photoClips: true } : {}),
+    beatSec:
+      (body.engine === "slideshow" || body.photoClips) && body.beatSec ? body.beatSec : null,
+    musicStartSec:
+      (body.engine === "slideshow" || body.photoClips) && body.musicStartSec != null
+        ? body.musicStartSec
+        : null,
     slideDurationSec: defaultValue(
       "slideDurationSec",
       body.slideDurationSec,

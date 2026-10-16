@@ -1800,6 +1800,56 @@ describe("POST /api/ai/generate-video", () => {
     });
   });
 
+  describe("showcase reel (one clip per photo)", () => {
+    it("accepts 2-6 photos on a single-frame model, prices one unit each and keeps the beat", async () => {
+      await setStoredVideoGenKey("replicate", "test-token");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
+      const tenant = await newTenant();
+      const photos = [1, 2, 3].map((n) => `/objects/${tenant.tenantId}/uploads/look${n}.png`);
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "image_to_video",
+        sourceImagePaths: photos,
+        photoClips: true,
+        beatSec: 2.14,
+        musicStartSec: 0.4,
+        durationSec: 5,
+        modelId: "wan-2.2-fast",
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const [job] = await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id));
+      expect(job?.options).toMatchObject({ photoClips: true, shotCount: 3, beatSec: 2.14, musicStartSec: 0.4 });
+      expect(job?.sourceImagePaths).toEqual(photos);
+      expect(res.body.requiredUnits ?? res.body.units).toBe(3);
+      await clearStoredVideoGenKey("replicate");
+    });
+
+    it("refuses one photo, too many photos, or another engine", async () => {
+      const tenant = await newTenant();
+      const photo = (n: number) => `/objects/${tenant.tenantId}/uploads/p${n}.png`;
+      const one = await request(app).post("/api/ai/generate-video").send({
+        engine: "image_to_video", sourceImagePaths: [photo(1)], photoClips: true,
+      });
+      expect(one.status).toBe(400);
+      const seven = await request(app).post("/api/ai/generate-video").send({
+        engine: "image_to_video", sourceImagePaths: [1, 2, 3, 4, 5, 6, 7].map(photo), photoClips: true,
+      });
+      expect(seven.status).toBe(400);
+      const text = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video", prompt: "x", sourceImagePaths: [photo(1), photo(2)], photoClips: true,
+      });
+      expect(text.status).toBe(400);
+      expect(text.body.error).toMatch(/showcase reel/i);
+    });
+  });
+
   describe("picking a model, and what it costs", () => {
     let restoreWan25Price: (() => Promise<void>) | null = null;
     let restoreWan25ImagePrice: (() => Promise<void>) | null = null;

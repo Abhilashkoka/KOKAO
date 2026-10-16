@@ -58,6 +58,8 @@ export interface SlideshowInput {
   slideCaptions?: (string | null)[] | null;
   /** Optional background music (mp3/m4a/wav bytes), faded out at the end. */
   music?: Buffer | null;
+  /** Start the music here (first downbeat) instead of an auto-picked offset. */
+  musicStartSec?: number | null;
 }
 
 function sniffImageExt(buffer: Buffer): string {
@@ -382,7 +384,10 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
       // video (null = ffprobe could not read it, so it must not be looped).
       musicDurationSec = await probeDurationSec("music", dir);
       // Skip a long quiet intro in the track (fail-soft: 0 = from the top).
-      musicSeekSec = await pickMusicStartOffsetSec("music", dir, totalSec);
+      musicSeekSec =
+        input.musicStartSec != null && input.musicStartSec >= 0
+          ? input.musicStartSec
+          : await pickMusicStartOffsetSec("music", dir, totalSec);
     }
 
     // Per-slide captions win over the whole-video overlay: an approved

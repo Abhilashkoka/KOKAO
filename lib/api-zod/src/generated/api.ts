@@ -15770,6 +15770,10 @@ export const LocalizeScriptResponse = zod.object({
  * @summary Generate an AI image and persist it to storage
  */
 
+export const generateImageBodyTryOnOutfitImagePathMax = 500;
+
+export const generateImageBodyTryOnModelImagePathMax = 500;
+
 export const generateImageBodyLayerPlanOneLayersMax = 8;
 
 
@@ -15788,6 +15792,10 @@ export const GenerateImageBody = zod.object({
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
   "contentId": zod.number().nullish().describe('Library\/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
+  "tryOn": zod.object({
+  "outfitImagePath": zod.string().max(generateImageBodyTryOnOutfitImagePathMax),
+  "modelImagePath": zod.string().max(generateImageBodyTryOnModelImagePathMax).nullish()
+}).nullish().describe('Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
   "guidedStoryDraftId": zod.number().optional().describe('Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision.'),
   "guidedStoryRevision": zod.number().optional().describe('Current revision of guidedStoryDraftId. Must be supplied together with guidedStoryDraftId.'),
@@ -15969,6 +15977,10 @@ export const StreamCaptionResponse = zod.unknown()
  * @summary Start a background image generation job
  */
 
+export const generateImageAsyncBodyTryOnOutfitImagePathMax = 500;
+
+export const generateImageAsyncBodyTryOnModelImagePathMax = 500;
+
 export const generateImageAsyncBodyLayerPlanOneLayersMax = 8;
 
 
@@ -15987,6 +15999,10 @@ export const GenerateImageAsyncBody = zod.object({
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
   "contentId": zod.number().nullish().describe('Library\/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
+  "tryOn": zod.object({
+  "outfitImagePath": zod.string().max(generateImageAsyncBodyTryOnOutfitImagePathMax),
+  "modelImagePath": zod.string().max(generateImageAsyncBodyTryOnModelImagePathMax).nullish()
+}).nullish().describe('Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
   "guidedStoryDraftId": zod.number().optional().describe('Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision.'),
   "guidedStoryRevision": zod.number().optional().describe('Current revision of guidedStoryDraftId. Must be supplied together with guidedStoryDraftId.'),
@@ -16252,6 +16268,12 @@ export const generateVideoBodyParagraphCountMax = 3;
 export const generateVideoBodyVisualsSourceDefault = `stock`;
 export const generateVideoBodyWardrobeNotesMax = 500;
 
+export const generateVideoBodyBeatSecMin = 0.5;
+export const generateVideoBodyBeatSecMax = 8;
+
+export const generateVideoBodyMusicStartSecMin = 0;
+export const generateVideoBodyMusicStartSecMax = 600;
+
 export const generateVideoBodyReviewStoryboardDefault = true;
 
 export const GenerateVideoBody = zod.object({
@@ -16360,6 +16382,9 @@ export const GenerateVideoBody = zod.object({
   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
   "scriptVariant": zod.union([zod.enum(['marketing', 'training', 'social_short']).describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),zod.null()]).optional().describe('Which kind of video this is. Layers the matching Prompt Kit script variant over the shared rules. Null (or omitted) keeps the base script prompt, which is the pre-variant behaviour.'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
+  "photoClips": zod.boolean().optional().describe('Showcase reel (image_to_video only): animate each of 2-6 source images as its own clip, in order, joined into one video. Each clip is a separate generation and is priced as such.'),
+  "beatSec": zod.number().min(generateVideoBodyBeatSecMin).max(generateVideoBodyBeatSecMax).nullish().describe('Reel timing — seconds per bar of the uploaded track; clips and slides are cut to whole bars.'),
+  "musicStartSec": zod.number().min(generateVideoBodyMusicStartSecMin).max(generateVideoBodyMusicStartSecMax).nullish().describe('Reel timing — first downbeat in the uploaded track; the music starts there.'),
   "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video\'s stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.'),
   "planSource": zod.object({
   "jobId": zod.number().describe('The video whose saved plan is being reused.'),

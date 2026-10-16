@@ -224,6 +224,22 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /** Showcase reel (image_to_video only): animate each of 2-6 source images as its own clip, in order, joined into one video. Each clip is a separate generation and is priced as such. */
+  photoClips?: boolean;
+  /**
+     * Reel timing — seconds per bar of the uploaded track; clips and slides are cut to whole bars.
+     * @minimum 0.5
+     * @maximum 8
+     * @nullable
+     */
+  beatSec?: number | null;
+  /**
+     * Reel timing — first downbeat in the uploaded track; the music starts there.
+     * @minimum 0
+     * @maximum 600
+     * @nullable
+     */
+  musicStartSec?: number | null;
   /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
   reviewStoryboard?: boolean;
   /**

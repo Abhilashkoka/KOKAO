@@ -98,6 +98,7 @@ import {
   buildReferenceGuide,
   ReferenceImageError,
 } from "../lib/referenceGuide";
+import { buildTryOnReference, tryOnInstruction } from "../lib/tryOn";
 import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
 import { getMeterMode, type MeterMode } from "../lib/creditRates";
 import { applyMadeWithWatermark } from "../lib/watermark";
@@ -1534,8 +1535,36 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   // Reference image (optional): kill-switch gated, tenant-scope asserted, and
   // loaded BEFORE any funding is reserved so a bad upload never burns quota.
   const referenceImagePath = parsed.data.referenceImagePath ?? null;
+  const tryOn = parsed.data.tryOn ?? null;
+  if (tryOn && referenceImagePath) {
+    res.status(400).json({ error: "Send either a reference image or a try-on outfit, not both." });
+    return;
+  }
   let referenceImage = null;
-  if (referenceImagePath) {
+  if (tryOn) {
+    if (!(await isFeatureEnabled("referenceImages"))) {
+      res.status(403).json({
+        error: "Reference images are currently disabled by the administrator.",
+        code: "feature_disabled",
+      });
+      return;
+    }
+    try {
+      const outfit = await loadReferenceImage(tryOn.outfitImagePath, req.tenantId);
+      const model = tryOn.modelImagePath
+        ? await loadReferenceImage(tryOn.modelImagePath, req.tenantId)
+        : null;
+      referenceImage = await buildTryOnReference(outfit, model);
+    } catch (error) {
+      if (error instanceof ReferenceImageError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      req.log.error({ err: error }, "Failed to prepare try-on reference");
+      res.status(500).json({ error: "Failed to prepare the outfit photo" });
+      return;
+    }
+  } else if (referenceImagePath) {
     if (!(await isFeatureEnabled("referenceImages"))) {
       res.status(403).json({
         error: "Reference images are currently disabled by the administrator.",
@@ -1604,7 +1633,12 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     const outcome = await performImageGeneration({
       tenantId: req.tenantId,
       tenant,
-      userPrompt: imageGoverned ? imageGoverned.text : compiledUserPrompt,
+      // Try-on is a fixed, server-written instruction: no template, brand or
+      // style rewrite may change what the reference sheet means.
+      userPrompt: tryOn
+        ? tryOnInstruction(Boolean(tryOn.modelImagePath), parsed.data.prompt)
+        : imageGoverned ? imageGoverned.text : compiledUserPrompt,
+      ...(tryOn ? { exactPrompt: true, requireReferenceInput: true } : {}),
       size,
       brandKitId: parsed.data.brandKitId ?? null,
       referenceImage,

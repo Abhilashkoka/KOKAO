@@ -2781,7 +2781,10 @@ async function produceVideo(
     }
     // Review declined, but the job was funded for several shots. Plan in memory
     // and render it in one pass so the user still gets the shots they paid for.
-    if (job.engine === "text_to_video" && clipShotCount(options.shotCount) > 1) {
+    if (
+      (job.engine === "text_to_video" && clipShotCount(options.shotCount) > 1) ||
+      (job.engine === "image_to_video" && options.photoClips === true)
+    ) {
       const storyboard = await planClipStoryboard({
         job,
         source: clipSource,
@@ -2980,6 +2983,7 @@ async function produceVideo(
       slideDurationSec,
       overlayText: options.overlayText ?? null,
       music,
+      musicStartSec: options.musicStartSec ?? null,
     });
     return {
       buffer,

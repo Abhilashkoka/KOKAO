@@ -167,6 +167,9 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     // Shot count is fixed at enqueue precisely because it prices the job; the
     // storyboard editor can reword a shot but never add or remove one.
     units = clipShotCount(options?.shotCount);
+  } else if (engine === "image_to_video" && options?.photoClips) {
+    // Showcase reel: one image-to-video generation per photo, fixed at enqueue.
+    units = clipShotCount(options.shotCount);
   } else if (engine === "topic_to_video" && options?.visualsSource === "character") {
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = options.templateRuntime?.maxSceneCount ??

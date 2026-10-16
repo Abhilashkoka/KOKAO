@@ -955,6 +955,16 @@ export interface VideoJobOptions {
    * editor cannot add or remove shots afterwards. */
 
   shotCount?: number;
+  /** Showcase reel (image_to_video): every source image is its own clip, in
+   * order, joined into one video. shotCount equals the image count and prices
+   * the job. */
+  photoClips?: boolean;
+  /** Reel timing: seconds per bar of the uploaded track. Each clip/slide is cut
+   * to a whole number of bars so the cuts land on the music. */
+  beatSec?: number | null;
+  /** Reel timing: where in the uploaded track the first downbeat is, so the
+   * music starts on a beat instead of an automatically picked offset. */
+  musicStartSec?: number | null;
   /** Opt-in single-provider-generation direction, frozen before dispatch. */
   directedVideo?: {
     version: 1;

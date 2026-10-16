@@ -20082,6 +20082,21 @@ components:
             caller is regenerating for an existing item. Links the billing
             ledger entry back to the item; ignored if the item is not in this
             workspace.
+        tryOn:
+          type: ["object", "null"]
+          additionalProperties: false
+          required: [outfitImagePath]
+          description: >-
+            Dress a model in an uploaded outfit or product. The outfit photo is
+            the reference for the garment only; an optional model photo keeps
+            the same person across several looks. The prompt is used as written.
+          properties:
+            outfitImagePath:
+              type: string
+              maxLength: 500
+            modelImagePath:
+              type: ["string", "null"]
+              maxLength: 500
         referenceImagePath:
           type: ["string", "null"]
           description: >-
@@ -22619,6 +22634,22 @@ components:
           description: >-
             topic_to_video character mode; costume-change instructions
             (e.g. "switch to gym wear for the workout scenes").
+        photoClips:
+          type: boolean
+          description: >-
+            Showcase reel (image_to_video only): animate each of 2-6 source
+            images as its own clip, in order, joined into one video. Each clip
+            is a separate generation and is priced as such.
+        beatSec:
+          type: ["number", "null"]
+          minimum: 0.5
+          maximum: 8
+          description: Reel timing — seconds per bar of the uploaded track; clips and slides are cut to whole bars.
+        musicStartSec:
+          type: ["number", "null"]
+          minimum: 0
+          maximum: 600
+          description: Reel timing — first downbeat in the uploaded track; the music starts there.
         reviewStoryboard:
           type: boolean
           default: true

@@ -107,9 +107,32 @@ vi.mock("../lib/featureFlags", async (importOriginal) => {
   return {
     ...actual,
     isFeatureEnabled: vi.fn(async (key: string) =>
-      key === "wallet" ? walletState.enabled : false,
+      key === "wallet"
+        ? walletState.enabled
+        : key === "referenceImages"
+          ? flagState.referenceImages
+          : false,
     ),
     requireFeature: actual.requireFeature,
+  };
+});
+
+const flagState = { referenceImages: false };
+const loadedReferences: string[] = [];
+vi.mock("../lib/referenceGuide", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/referenceGuide")>();
+  const sharp = (await import("sharp")).default;
+  return {
+    ...actual,
+    loadReferenceImage: vi.fn(async (path: string) => {
+      loadedReferences.push(path);
+      return {
+        buffer: await sharp({ create: { width: 64, height: 128, channels: 3, background: "#888888" } })
+          .png()
+          .toBuffer(),
+        mimeType: "image/png",
+      };
+    }),
   };
 });
 
@@ -155,6 +178,8 @@ beforeEach(async () => {
   walletCalls.settle.length = 0;
   walletCalls.refund.length = 0;
   imageGenerationCalls.length = 0;
+  flagState.referenceImages = false;
+  loadedReferences.length = 0;
 
   // Default: generation succeeds with minimal meta.
   imageGenScript = async () => ({
@@ -571,3 +596,48 @@ describe("image generation wallet billing", () => {
     expect(await ledgerRows()).toHaveLength(0);
   });
 });
+
+describe("try-on images", () => {
+  it("is refused when reference images are switched off", async () => {
+    planState.images = 10;
+    const res = await postImage({ prompt: "sway", tryOn: { outfitImagePath: "/objects/a" } });
+    expect(res.status).toBe(403);
+    expect(imageGenerationCalls).toHaveLength(0);
+  });
+
+  it("rejects a plain reference and a try-on in the same request", async () => {
+    planState.images = 10;
+    flagState.referenceImages = true;
+    const res = await postImage({
+      prompt: "sway",
+      referenceImagePath: "/objects/r",
+      tryOn: { outfitImagePath: "/objects/a" },
+    });
+    expect(res.status).toBe(400);
+    expect(imageGenerationCalls).toHaveLength(0);
+  });
+
+  it("sends the fixed try-on instruction with one combined model + outfit reference", async () => {
+    planState.images = 10;
+    flagState.referenceImages = true;
+    const res = await postImage({
+      prompt: "sways gently",
+      size: "1024x1536",
+      tryOn: { outfitImagePath: "/objects/outfit", modelImagePath: "/objects/model" },
+    });
+    expect(res.status).toBe(200);
+    expect(loadedReferences).toEqual(["/objects/outfit", "/objects/model"]);
+    const input = imageGenerationCalls[0] as {
+      userPrompt: string;
+      exactPrompt?: boolean;
+      requireReferenceInput?: boolean;
+      referenceImage: { mimeType: string };
+    };
+    expect(input.exactPrompt).toBe(true);
+    expect(input.requireReferenceInput).toBe(true);
+    expect(input.userPrompt).toContain("SAME person from the left");
+    expect(input.userPrompt).toContain("Scene idea: sways gently");
+    expect(input.referenceImage.mimeType).toBe("image/png");
+  });
+});
+

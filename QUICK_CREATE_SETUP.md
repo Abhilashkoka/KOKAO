@@ -59,3 +59,17 @@ columns from work that is not on GitHub yet, push offers to DROP them.
 
 ## Not in this step
 - Multi-photo outfit reels with beat-synced cuts (needs a backend pipeline).
+
+## Showcase Reel (several outfits, one model, cut on the beat)
+
+Create → **Showcase reel**.
+
+1. Optional: add a model photo. Without one, the first dressed look sets the face for the rest.
+2. Add 2–6 outfit photos (multi-select works), then **Dress the model in all looks**.
+3. Upload a music track. The beat is detected in the browser, and every look is cut to whole bars (1, 2 or 3 bars per look).
+4. Pick **Video** (one AI clip per look, joined on the beat) or **Photo** (a gentle photo slideshow; faster and cheaper).
+
+Requirements:
+- **Admin → Feature controls → Reference images** must be on, because dressing uses the try-on reference.
+- No database step. New options are stored in the existing `options` JSON column.
+- Video reels cost one clip per look. Photo reels cost the same as a slideshow.

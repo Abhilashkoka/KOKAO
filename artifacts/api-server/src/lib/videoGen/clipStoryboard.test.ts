@@ -36,6 +36,9 @@ const state = vi.hoisted(() => ({
   } | null,
   concatCount: 0,
   musicMixed: false,
+  musicStartSec: undefined as number | null | undefined,
+  trims: [] as number[],
+  fittedImages: [] as string[],
 }));
 
 vi.mock("../characterAssets", () => ({
@@ -165,9 +168,18 @@ vi.mock("./postprocess", () => ({
     state.concatCount = clips.length;
     return Buffer.concat(clips);
   }),
-  mixMusicIntoVideo: vi.fn(async (buffer: Buffer) => {
+  mixMusicIntoVideo: vi.fn(async (buffer: Buffer, _music: Buffer, startSec?: number | null) => {
     state.musicMixed = true;
+    state.musicStartSec = startSec;
     return buffer;
+  }),
+  trimClipToStart: vi.fn(async (buffer: Buffer, sec: number) => {
+    state.trims.push(sec);
+    return buffer;
+  }),
+  fitImageToAspect: vi.fn(async (image: { buffer: Buffer; mimeType: string }) => {
+    state.fittedImages.push(image.buffer.toString());
+    return image;
   }),
 }));
 
@@ -217,6 +229,9 @@ beforeEach(() => {
   state.slideshowCall = null;
   state.concatCount = 0;
   state.musicMixed = false;
+  state.musicStartSec = undefined;
+  state.trims = [];
+  state.fittedImages = [];
 });
 
 function makeJob(overrides: Partial<VideoGeneration>): VideoGeneration {
@@ -1084,3 +1099,55 @@ describe("videoJobUnits for multi-shot clips", () => {
     expect(videoJobUnits("text_to_video", { ...base, shotCount: 3, musicPrompt: "lofi" })).toBe(4);
   });
 });
+
+describe("showcase reel (one clip per photo)", () => {
+  it("plans one scene per photo, in order, capped at the reel limit", async () => {
+    const photos = Array.from({ length: 8 }, (_, i) => `/objects/1/u/look${i}.png`);
+    const result = await plan(
+      makeJob({
+        engine: "image_to_video",
+        prompt: "Model sways gently",
+        sourceImagePaths: photos,
+        options: { aspectRatio: "9:16", durationSec: 5, photoClips: true, shotCount: 6 },
+      }),
+      "photo",
+    );
+    expect(result.scenes.map((scene) => scene.previewPath)).toEqual(photos.slice(0, 6));
+    expect(result.scenes.every((scene) => scene.visual === "Model sways gently")).toBe(true);
+  });
+
+  it("animates each scene from its own photo, cuts to whole bars and starts the music on the beat", async () => {
+    const storyboard = board({
+      visualsSource: "photo",
+      scenes: [1, 2, 3].map((n) => ({
+        id: `s${n}`,
+        text: "",
+        visual: "Model sways gently",
+        durationSec: 5,
+        previewPath: `/objects/1/u/look${n}.png`,
+        outfitId: null,
+      })),
+    });
+    await renderClipStoryboard({
+      job: makeJob({
+        engine: "image_to_video",
+        options: { aspectRatio: "9:16", photoClips: true, beatSec: 2, musicStartSec: 0.5 },
+      }),
+      storyboard,
+      aspectRatio: "9:16",
+      music: Buffer.from("music"),
+      load: async (path) => ({ buffer: Buffer.from(path), mimeType: "image/png" }),
+    });
+    expect(state.fittedImages).toEqual([
+      "/objects/1/u/look1.png",
+      "/objects/1/u/look2.png",
+      "/objects/1/u/look3.png",
+    ]);
+    expect(state.generateCalls.every((call) => call.mode === "image" && call.hasImage)).toBe(true);
+    expect(state.trims).toHaveLength(3);
+    expect(state.trims.every((sec) => sec > 0 && sec % 2 === 0)).toBe(true);
+    expect(state.concatCount).toBe(3);
+    expect(state.musicStartSec).toBe(0.5);
+  });
+});
+

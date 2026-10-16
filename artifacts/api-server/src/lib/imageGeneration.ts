@@ -50,6 +50,14 @@ export interface ImageGenerationInput {
   /** Server-owned frozen provider/model policy for durable Guided Story work. */
   selectionPolicy?: ImageGenSelectionPolicy;
   meterContext: MeterContext;
+  /**
+   * Send userPrompt exactly as written: no brand hints, design rewrite or
+   * "match the style" reference line. Used where the reference is the
+   * subject itself (try-on), not a style to imitate.
+   */
+  exactPrompt?: boolean;
+  /** Only route to providers that actually consume the reference image. */
+  requireReferenceInput?: boolean;
 }
 
 export interface ImageGenerationOutcome {
@@ -190,7 +198,7 @@ export async function performImageGeneration(
   input: ImageGenerationInput,
 ): Promise<ImageGenerationOutcome> {
   const startedAt = Date.now();
-  const prompt = await buildImagePrompt(input);
+  const prompt = input.exactPrompt ? input.userPrompt : await buildImagePrompt(input);
 
   const {
     buffer: rawBuffer,
@@ -202,6 +210,7 @@ export async function performImageGeneration(
   } = await generateImage(prompt, input.size, input.referenceImage ?? undefined, {
     selectionPolicy: input.selectionPolicy,
     meterContext: input.meterContext,
+    ...(input.requireReferenceInput ? { requireReferenceInput: true } : {}),
   });
 
   // Plans with the watermark switch ON get a "Made with KOKAO.in" stamp,

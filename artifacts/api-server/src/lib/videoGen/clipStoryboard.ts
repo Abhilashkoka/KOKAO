@@ -25,7 +25,7 @@ import {
   isAtlasReferenceModel,
   isAtlasWanReferenceModel,
 } from "./providers/atlascloud";
-import { applyProductCardOverlay, concatClips, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+import { applyProductCardOverlay, concatClips, mixMusicIntoVideo, normalizeVideo, fitImageToAspect, trimClipToStart } from "./postprocess";
 import { guidedExactProductCards, guidedWanProductReferenceUrls, loadApprovedProductImage } from "./guidedProductReferences";
 import { actualClipDuration } from "./renderTimeline";
 import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
@@ -80,6 +80,20 @@ const objectStorageService = new ObjectStorageService();
 /** Most shots one text_to_video job will split into. Each shot is a separate
  * generation, so this is also the ceiling on what one job can cost. */
 export const MAX_CLIP_SHOTS = 10;
+/** Showcase reel: most photos (each its own paid clip) one job may animate. */
+export const MAX_REEL_CLIPS = 6;
+
+/**
+ * Cut length that keeps a reel on the music: the longest whole number of bars
+ * that fits inside what was rendered (never less than one bar, never longer
+ * than the clip). Null when there is no usable beat.
+ */
+export function barAlignedSec(clipSec: number, beatSec: number | null | undefined): number | null {
+  if (!beatSec || !Number.isFinite(beatSec) || beatSec <= 0) return null;
+  if (!Number.isFinite(clipSec) || clipSec <= 0) return null;
+  const bars = Math.max(1, Math.floor((clipSec + 0.01) / beatSec));
+  return Math.min(clipSec, bars * beatSec);
+}
 
 /** Fallback shot count when the "let the script decide" call fails: three
  * shots reads as a real edit without risking a large surprise reservation. */
@@ -466,7 +480,10 @@ export async function planClipStoryboard(
         source === "photo" ? "No source image provided." : "No photos provided.",
       );
     }
-    const used = source === "photo" ? paths.slice(0, 1) : paths.slice(0, MAX_SLIDESHOW_IMAGES);
+    const used =
+      source === "photo"
+        ? paths.slice(0, options.photoClips ? MAX_REEL_CLIPS : 1)
+        : paths.slice(0, MAX_SLIDESHOW_IMAGES);
     const perScene =
       source === "photo"
         ? clamp(options.durationSec ?? DEFAULT_CLIP_SEC)
@@ -643,6 +660,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       slideDurationsSec: durations,
       slideCaptions: scenes.map((scene) => scene.visual),
       music: params.music ?? null,
+      musicStartSec: params.job.options?.musicStartSec ?? null,
     });
     return { buffer, provider: null, model: null, totalSec: slideshowTotalSec(durations) };
   }
@@ -651,7 +669,10 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
   // held to its planned length before they are joined, so the cuts land where
   // the storyboard said they would.
   let photo: SourceImage | null = null;
-  if (storyboard.visualsSource === "photo") {
+  // Showcase reel: each scene animates its own photo instead of the first one.
+  const photoPerScene =
+    storyboard.visualsSource === "photo" && params.job.options?.photoClips === true;
+  if (storyboard.visualsSource === "photo" && !photoPerScene) {
     const path = scenes[0]?.previewPath;
     if (!path) throw new VideoGenProviderError("No source image provided.");
     const loaded = await params.load(path);
@@ -672,7 +693,15 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
   for (const [i, scene] of scenes.entries()) {
     const shotLabel = scenes.length > 1 ? ` ${i + 1} of ${scenes.length}` : "";
     let image = photo;
-    if (storyboard.visualsSource === "character") {
+    if (photoPerScene) {
+      params.onStage?.(`Animating look${shotLabel}`);
+      if (!scene.previewPath) throw new VideoGenProviderError("A photo in this reel is missing.");
+      const loaded = await params.load(scene.previewPath);
+      image = await fitImageToAspect(
+        { buffer: loaded.buffer, mimeType: loaded.mimeType },
+        aspectRatio,
+      );
+    } else if (storyboard.visualsSource === "character") {
       params.onStage?.(`Filming shot${shotLabel}`);
       // The approved keyframe IS the first frame, which is what makes editing
       // free. Missing means the plan's still failed to generate, not that a
@@ -923,7 +952,16 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     }
     provider = result.provider;
     model = result.model;
-    const normalized = await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution);
+    let normalized = await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution);
+    // Reels cut every clip to whole bars of the track so cuts land on the beat.
+    // Fail-soft: a trim problem keeps the full clip rather than losing paid work.
+    const barSec = barAlignedSec(
+      await actualClipDuration(normalized).catch(() => durations[i]!),
+      params.job.options?.beatSec,
+    );
+    if (barSec != null) {
+      normalized = await trimClipToStart(normalized, barSec).catch(() => normalized);
+    }
     clips.push(
       productCards.length
         ? await applyProductCardOverlay(normalized, productCards, aspectRatio, modelOptions.resolution)
@@ -933,7 +971,9 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
 
   if (clips.length > 1) params.onStage?.("Joining your shots");
   let buffer = await concatClips(clips);
-  if (params.music) buffer = await mixMusicIntoVideo(buffer, params.music);
+  if (params.music) {
+    buffer = await mixMusicIntoVideo(buffer, params.music, params.job.options?.musicStartSec ?? null);
+  }
   return {
     buffer,
     provider,

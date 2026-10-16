@@ -693,6 +693,7 @@ export * from './imagePromptRecipeLighting';
 export * from './imagePromptRecipePreset';
 export * from './imageRequest';
 export * from './imageRequestSize';
+export * from './imageRequestTryOn';
 export * from './imageResult';
 export * from './importDriveFilesRequest';
 export * from './importDriveFilesResult';

@@ -569,7 +569,12 @@ function probeHasAudio(file: string, cwd: string): Promise<boolean> {
  * Fail-soft like normalizeVideo: any error returns the ORIGINAL clip — a
  * music hiccup must never fail a generation that already cost money.
  */
-export async function mixMusicIntoVideo(video: Buffer, music: Buffer): Promise<Buffer> {
+export async function mixMusicIntoVideo(
+  video: Buffer,
+  music: Buffer,
+  /** Start the bed here (e.g. the first downbeat) instead of an auto-picked offset. */
+  musicStartSec?: number | null,
+): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "kokao-music-mix-"));
   try {
     await writeFile(join(dir, "in.mp4"), video);
@@ -577,7 +582,10 @@ export async function mixMusicIntoVideo(video: Buffer, music: Buffer): Promise<B
     const durationSec = await probeDurationSec("in.mp4", dir);
     if (!durationSec) return video;
     const hasAudio = await probeHasAudio("in.mp4", dir);
-    const seekSec = await pickMusicStartOffsetSec("music", dir, durationSec);
+    const seekSec =
+      musicStartSec != null && musicStartSec >= 0
+        ? musicStartSec
+        : await pickMusicStartOffsetSec("music", dir, durationSec);
     const fadeDur = Math.min(1.5, durationSec / 2);
     const fadeStart = Math.max(durationSec - fadeDur, 0);
     const bed =

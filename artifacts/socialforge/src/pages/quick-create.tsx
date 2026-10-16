@@ -14,7 +14,14 @@ import {
   useQuoteCredits,
   useRequestUploadUrl,
 } from "@workspace/api-client-react";
-import { ImagePlus, Loader2, Music2, Settings2, Sparkles, X } from "lucide-react";
+import {
+  ImagePlus,
+  Loader2,
+  Music2,
+  Settings2,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -28,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useCreditFunding } from "@/components/credit-balance";
+import { ShowcaseReel } from "@/components/showcase-reel";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { trackProjectEvent } from "@/lib/analytics";
@@ -88,6 +96,11 @@ export function QuickCreatePage() {
   const { data: me, isLoading: meLoading } = useGetMe();
   const { creditFunded } = useCreditFunding();
   const isFreePlan = me?.tenant?.plan === "free";
+  const [mode, setMode] = useState<"single" | "reel">(() =>
+    new URLSearchParams(window.location.search).get("mode") === "reel"
+      ? "reel"
+      : "single",
+  );
 
   const [vertical, setVertical] = useState<QuickCreateVertical>("fashion");
   const [preset, setPreset] = useState<QuickCreatePreset | null>(null);
@@ -96,7 +109,10 @@ export function QuickCreatePage() {
   // "model": the photo is an outfit/product to put on a model first.
   // "as_is": animate the photo itself (it already shows the person/scene).
   const [photoRole, setPhotoRole] = useState<"model" | "as_is">("model");
-  const [tryOn, setTryOn] = useState<{ objectPath: string; previewUrl: string } | null>(null);
+  const [tryOn, setTryOn] = useState<{
+    objectPath: string;
+    previewUrl: string;
+  } | null>(null);
   const generateImage = useGenerateImage();
   const [uploading, setUploading] = useState(false);
   const [durationSec, setDurationSec] = useState<number>(10);
@@ -121,7 +137,10 @@ export function QuickCreatePage() {
   // Admin-managed starters win; the built-in list covers an empty or
   // unreachable catalog so the page is never blank.
   const { data: adminPresets } = useListQuickCreatePresets({
-    query: { queryKey: getListQuickCreatePresetsQueryKey(), staleTime: 5 * 60_000 },
+    query: {
+      queryKey: getListQuickCreatePresetsQueryKey(),
+      staleTime: 5 * 60_000,
+    },
   });
   const catalog = useMemo<QuickCreatePreset[]>(
     () =>
@@ -140,7 +159,10 @@ export function QuickCreatePage() {
     [adminPresets],
   );
   const verticals = useMemo(
-    () => QUICK_CREATE_VERTICALS.filter((v) => catalog.some((p) => p.vertical === v.id)),
+    () =>
+      QUICK_CREATE_VERTICALS.filter((v) =>
+        catalog.some((p) => p.vertical === v.id),
+      ),
     [catalog],
   );
   const activeVertical = verticals.some((v) => v.id === vertical)
@@ -178,7 +200,11 @@ export function QuickCreatePage() {
         headers: { "Content-Type": file.type },
       });
       if (!put.ok) throw new Error(`Upload failed (${put.status})`);
-      setPhoto({ objectPath, previewUrl: URL.createObjectURL(file), name: file.name });
+      setPhoto({
+        objectPath,
+        previewUrl: URL.createObjectURL(file),
+        name: file.name,
+      });
       setTryOn(null);
     } catch (error) {
       toast({
@@ -202,12 +228,19 @@ export function QuickCreatePage() {
     photo ? "image" : "text",
   );
   const nativeAudio = Boolean(defaultModel?.canGenerateAudio);
-  const wantsSound = nativeAudio && (musicPrompt.trim().length > 0 || language !== "None");
-  const basePrompt = buildQuickCreatePrompt(description, language, nativeAudio ? musicPrompt : "");
+  const wantsSound =
+    nativeAudio && (musicPrompt.trim().length > 0 || language !== "None");
+  const basePrompt = buildQuickCreatePrompt(
+    description,
+    language,
+    nativeAudio ? musicPrompt : "",
+  );
   const prompt = basePrompt ? `${basePrompt} ${QUICK_CREATE_NO_TEXT}` : "";
   // An outfit photo must be dressed on a model (and approved) before video.
   const needsTryOn = Boolean(photo) && photoRole === "model";
-  const startFrame = needsTryOn ? tryOn?.objectPath ?? null : photo?.objectPath ?? null;
+  const startFrame = needsTryOn
+    ? (tryOn?.objectPath ?? null)
+    : (photo?.objectPath ?? null);
 
   const onDressModel = () => {
     if (!photo || generateImage.isPending) return;
@@ -216,13 +249,21 @@ export function QuickCreatePage() {
         data: {
           prompt: buildTryOnPrompt(description),
           referenceImagePath: photo.objectPath,
-          size: aspect === "16:9" ? "1536x1024" : aspect === "1:1" ? "1024x1024" : "1024x1536",
+          size:
+            aspect === "16:9"
+              ? "1536x1024"
+              : aspect === "1:1"
+                ? "1024x1024"
+                : "1024x1536",
         },
       },
       {
         onSuccess: (image) => {
           refreshCreditBalanceSafely(queryClient);
-          setTryOn({ objectPath: image.imagePath, previewUrl: storageUrl(image.imagePath) });
+          setTryOn({
+            objectPath: image.imagePath,
+            previewUrl: storageUrl(image.imagePath),
+          });
         },
         onError: (error: unknown) => {
           refreshCreditBalanceSafely(queryClient);
@@ -264,7 +305,9 @@ export function QuickCreatePage() {
       {
         onSuccess: (job) => {
           trackProjectEvent("video_generation_started", { engine });
-          void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+          void queryClient.invalidateQueries({
+            queryKey: getListVideoJobsQueryKey(),
+          });
           refreshCreditBalanceSafely(queryClient);
           navigate(`/results?job=${job.id}`);
         },
@@ -272,10 +315,15 @@ export function QuickCreatePage() {
           refreshCreditBalanceSafely(queryClient);
           const status = (error as { status?: number } | null)?.status;
           toast({
-            title: status === 402 ? "Not enough credits" : "Could not start the video",
+            title:
+              status === 402
+                ? "Not enough credits"
+                : "Could not start the video",
             description: apiErrorMessage(
               error,
-              status === 402 ? "Top up credits and try again." : "Please try again.",
+              status === 402
+                ? "Top up credits and try again."
+                : "Please try again.",
             ),
             variant: "destructive",
           });
@@ -285,7 +333,10 @@ export function QuickCreatePage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6" data-testid="quick-create-page">
+    <div
+      className="mx-auto max-w-6xl space-y-6"
+      data-testid="quick-create-page"
+    >
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Create a video</h1>
@@ -308,7 +359,10 @@ export function QuickCreatePage() {
           data-testid="quick-create-free-plan"
         >
           Quick Create uses AI video, which is not part of the free plan.{" "}
-          <Link href="/settings?tab=billing" className="font-semibold underline">
+          <Link
+            href="/settings?tab=billing"
+            className="font-semibold underline"
+          >
             Upgrade
           </Link>{" "}
           or use stock Topic to Video in the{" "}
@@ -319,305 +373,409 @@ export function QuickCreatePage() {
         </div>
       )}
 
-      <section className="space-y-3" aria-labelledby="qc-templates">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="qc-templates" className="text-lg font-semibold">
-            Start from a template <span className="text-sm font-normal text-muted-foreground">(optional)</span>
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {verticals.map((v) => (
-              <Chip
-                key={v.id}
-                active={activeVertical === v.id}
-                onClick={() => setVertical(v.id)}
-                testId={`qc-vertical-${v.id}`}
-              >
-                {v.label}
-              </Chip>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          {presets.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => applyPreset(p)}
-              aria-pressed={preset?.id === p.id}
-              data-testid={`qc-preset-${p.id}`}
-              className={cn(
-                "flex min-w-[180px] flex-1 flex-col items-start gap-1 rounded-2xl border p-4 text-left transition-colors sm:flex-none",
-                preset?.id === p.id
-                  ? "border-primary bg-primary/10"
-                  : "border-border bg-card hover:bg-muted/60",
-              )}
-            >
-              <span className="font-semibold">{p.label}</span>
-              <span className="text-xs text-muted-foreground">
-                {p.durationSec}s · {p.aspect}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
+      <div
+        className="inline-flex rounded-full bg-muted p-1"
+        role="tablist"
+        aria-label="What to make"
+      >
+        {(
+          [
+            ["single", "Single video"],
+            ["reel", "Showcase reel"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            onClick={() => setMode(value)}
+            data-testid={`qc-mode-${value}`}
+            className={
+              mode === value
+                ? "h-9 rounded-full bg-background px-5 text-sm font-semibold shadow-sm"
+                : "h-9 rounded-full px-5 text-sm font-semibold text-muted-foreground hover:text-foreground"
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <div className="flex flex-wrap items-start gap-6">
-        <section className="min-w-0 flex-[999_1_460px] space-y-6 rounded-3xl border bg-card p-6">
-          <div className="space-y-3">
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-semibold">Photo</h2>
-              <span className="text-xs text-muted-foreground">
-                {preset?.photoHint ?? "Product, outfit or you · optional"}
-              </span>
-            </div>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => void onPickFile(e.target.files?.[0])}
-              data-testid="qc-photo-input"
-            />
-            {photo && (
-              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="How to use this photo">
-                <Chip
-                  active={photoRole === "model"}
-                  onClick={() => setPhotoRole("model")}
-                  testId="qc-role-model"
-                >
-                  Put it on a model
-                </Chip>
-                <Chip
-                  active={photoRole === "as_is"}
-                  onClick={() => setPhotoRole("as_is")}
-                  testId="qc-role-as-is"
-                >
-                  Animate this photo as is
-                </Chip>
+      {mode === "reel" ? (
+        <ShowcaseReel
+          disabled={isFreePlan || meLoading}
+          creditFunded={creditFunded}
+        />
+      ) : (
+        <>
+          <section className="space-y-3" aria-labelledby="qc-templates">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="qc-templates" className="text-lg font-semibold">
+                Start from a template{" "}
+                <span className="text-sm font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {verticals.map((v) => (
+                  <Chip
+                    key={v.id}
+                    active={activeVertical === v.id}
+                    onClick={() => setVertical(v.id)}
+                    testId={`qc-vertical-${v.id}`}
+                  >
+                    {v.label}
+                  </Chip>
+                ))}
               </div>
-            )}
-            {photo ? (
-              <div className="flex flex-wrap items-start gap-4">
-              <div className="relative h-40 w-32 overflow-hidden rounded-2xl border">
-                <img src={photo.previewUrl} alt={photo.name} className="h-full w-full object-cover" />
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {presets.map((p) => (
                 <button
+                  key={p.id}
                   type="button"
-                  aria-label="Remove photo"
-                  onClick={() => {
-                    setPhoto(null);
-                    setTryOn(null);
-                  }}
-                  className="absolute right-2 top-2 rounded-full bg-background/90 p-1"
-                  data-testid="qc-photo-remove"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              {needsTryOn && (
-                <div className="flex flex-col gap-2" data-testid="qc-tryon">
-                  {tryOn ? (
-                    <img
-                      src={tryOn.previewUrl}
-                      alt="Model wearing your outfit"
-                      className="h-40 w-32 rounded-2xl border object-cover"
-                      data-testid="qc-tryon-image"
-                    />
-                  ) : (
-                    <div className="flex h-40 w-32 items-center justify-center rounded-2xl border border-dashed bg-muted/40 p-2 text-center text-xs text-muted-foreground">
-                      {generateImage.isPending ? (
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                      ) : (
-                        "Your model will appear here"
-                      )}
-                    </div>
+                  onClick={() => applyPreset(p)}
+                  aria-pressed={preset?.id === p.id}
+                  data-testid={`qc-preset-${p.id}`}
+                  className={cn(
+                    "flex min-w-[180px] flex-1 flex-col items-start gap-1 rounded-2xl border p-4 text-left transition-colors sm:flex-none",
+                    preset?.id === p.id
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-card hover:bg-muted/60",
                   )}
-                  <Button
-                    type="button"
-                    variant={tryOn ? "outline" : "default"}
-                    size="sm"
-                    onClick={onDressModel}
-                    disabled={generateImage.isPending}
-                    data-testid="qc-tryon-generate"
-                  >
-                    {tryOn ? "Try another look" : "Dress the model"}
-                  </Button>
+                >
+                  <span className="font-semibold">{p.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {p.durationSec}s · {p.aspect}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="flex flex-wrap items-start gap-6">
+            <section className="min-w-0 flex-[999_1_460px] space-y-6 rounded-3xl border bg-card p-6">
+              <div className="space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="font-semibold">Photo</h2>
+                  <span className="text-xs text-muted-foreground">
+                    {preset?.photoHint ?? "Product, outfit or you · optional"}
+                  </span>
                 </div>
-              )}
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileInput.current?.click()}
-                disabled={uploading}
-                className={cn(
-                  "flex h-40 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/30 bg-pastel-lavender/40 text-sm font-semibold text-primary hover:bg-primary/5",
-                  highlightPhoto && "border-primary ring-4 ring-primary/20",
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => void onPickFile(e.target.files?.[0])}
+                  data-testid="qc-photo-input"
+                />
+                {photo && (
+                  <div
+                    className="flex flex-wrap gap-2"
+                    role="radiogroup"
+                    aria-label="How to use this photo"
+                  >
+                    <Chip
+                      active={photoRole === "model"}
+                      onClick={() => setPhotoRole("model")}
+                      testId="qc-role-model"
+                    >
+                      Put it on a model
+                    </Chip>
+                    <Chip
+                      active={photoRole === "as_is"}
+                      onClick={() => setPhotoRole("as_is")}
+                      testId="qc-role-as-is"
+                    >
+                      Animate this photo as is
+                    </Chip>
+                  </div>
                 )}
-                data-testid="qc-photo-add"
-              >
-                {uploading ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                {photo ? (
+                  <div className="flex flex-wrap items-start gap-4">
+                    <div className="relative h-40 w-32 overflow-hidden rounded-2xl border">
+                      <img
+                        src={photo.previewUrl}
+                        alt={photo.name}
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remove photo"
+                        onClick={() => {
+                          setPhoto(null);
+                          setTryOn(null);
+                        }}
+                        className="absolute right-2 top-2 rounded-full bg-background/90 p-1"
+                        data-testid="qc-photo-remove"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {needsTryOn && (
+                      <div
+                        className="flex flex-col gap-2"
+                        data-testid="qc-tryon"
+                      >
+                        {tryOn ? (
+                          <img
+                            src={tryOn.previewUrl}
+                            alt="Model wearing your outfit"
+                            className="h-40 w-32 rounded-2xl border object-cover"
+                            data-testid="qc-tryon-image"
+                          />
+                        ) : (
+                          <div className="flex h-40 w-32 items-center justify-center rounded-2xl border border-dashed bg-muted/40 p-2 text-center text-xs text-muted-foreground">
+                            {generateImage.isPending ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              "Your model will appear here"
+                            )}
+                          </div>
+                        )}
+                        <Button
+                          type="button"
+                          variant={tryOn ? "outline" : "default"}
+                          size="sm"
+                          onClick={onDressModel}
+                          disabled={generateImage.isPending}
+                          data-testid="qc-tryon-generate"
+                        >
+                          {tryOn ? "Try another look" : "Dress the model"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <ImagePlus className="h-6 w-6" />
+                  <button
+                    type="button"
+                    onClick={() => fileInput.current?.click()}
+                    disabled={uploading}
+                    className={cn(
+                      "flex h-40 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/30 bg-pastel-lavender/40 text-sm font-semibold text-primary hover:bg-primary/5",
+                      highlightPhoto && "border-primary ring-4 ring-primary/20",
+                    )}
+                    data-testid="qc-photo-add"
+                  >
+                    {uploading ? (
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-6 w-6" />
+                    )}
+                    {uploading ? "Uploading…" : "Add a photo"}
+                  </button>
                 )}
-                {uploading ? "Uploading…" : "Add a photo"}
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="qc-description" className="text-base font-semibold">
-              Describe your video
-            </Label>
-            <Textarea
-              id="qc-description"
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Model wears this saree and sways gently to the music"
-              className="rounded-2xl text-base"
-              data-testid="qc-description"
-            />
-            <p className="text-xs text-muted-foreground">Simple sentences work best.</p>
-          </div>
-
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="space-y-2">
-              <span className="text-sm font-semibold text-muted-foreground">Length</span>
-              <div className="flex flex-wrap gap-2">
-                {LENGTHS.map((d) => (
-                  <Chip
-                    key={d}
-                    active={durationSec === d}
-                    onClick={() => setDurationSec(d)}
-                    testId={`qc-length-${d}`}
-                  >
-                    {d}s
-                  </Chip>
-                ))}
               </div>
-            </div>
-            <div className="space-y-2">
-              <span className="text-sm font-semibold text-muted-foreground">Shape</span>
-              <div className="flex flex-wrap gap-2">
-                {SHAPES.map((s) => (
-                  <Chip
-                    key={s}
-                    active={aspect === s}
-                    onClick={() => setAspect(s)}
-                    testId={`qc-shape-${s}`}
-                  >
-                    {s}
-                  </Chip>
-                ))}
+
+              <div className="space-y-2">
+                <Label
+                  htmlFor="qc-description"
+                  className="text-base font-semibold"
+                >
+                  Describe your video
+                </Label>
+                <Textarea
+                  id="qc-description"
+                  rows={3}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="e.g. Model wears this saree and sways gently to the music"
+                  className="rounded-2xl text-base"
+                  data-testid="qc-description"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Simple sentences work best.
+                </p>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="qc-language" className="text-sm font-semibold text-muted-foreground">
-                Language
-              </Label>
-              <Select value={language} onValueChange={(v) => setLanguage(v as QuickCreateLanguage)}>
-                <SelectTrigger id="qc-language" data-testid="qc-language">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {QUICK_CREATE_LANGUAGES.map((l) => (
-                    <SelectItem key={l} value={l}>
-                      {l === "None" ? "No speech" : l}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="qc-music" className="flex items-center gap-1 text-sm font-semibold text-muted-foreground">
-                <Music2 className="h-4 w-4" /> Music
-              </Label>
-              <Input
-                id="qc-music"
-                value={musicPrompt}
-                onChange={(e) => setMusicPrompt(e.target.value)}
-                placeholder={nativeAudio ? "e.g. soft sitar, festive" : "Not available for this video model"}
-                disabled={!nativeAudio}
-                data-testid="qc-music"
-              />
-              {!nativeAudio && (
-                <p className="text-xs text-muted-foreground" data-testid="qc-music-note">
-                  This video model makes silent clips. Add a music track in the{" "}
-                  <Link href="/studio?tab=video" className="font-semibold text-primary hover:underline">
-                    advanced studio
-                  </Link>
-                  .
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <span className="text-sm font-semibold text-muted-foreground">
+                    Length
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {LENGTHS.map((d) => (
+                      <Chip
+                        key={d}
+                        active={durationSec === d}
+                        onClick={() => setDurationSec(d)}
+                        testId={`qc-length-${d}`}
+                      >
+                        {d}s
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-sm font-semibold text-muted-foreground">
+                    Shape
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {SHAPES.map((s) => (
+                      <Chip
+                        key={s}
+                        active={aspect === s}
+                        onClick={() => setAspect(s)}
+                        testId={`qc-shape-${s}`}
+                      >
+                        {s}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="qc-language"
+                    className="text-sm font-semibold text-muted-foreground"
+                  >
+                    Language
+                  </Label>
+                  <Select
+                    value={language}
+                    onValueChange={(v) => setLanguage(v as QuickCreateLanguage)}
+                  >
+                    <SelectTrigger id="qc-language" data-testid="qc-language">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QUICK_CREATE_LANGUAGES.map((l) => (
+                        <SelectItem key={l} value={l}>
+                          {l === "None" ? "No speech" : l}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="qc-music"
+                    className="flex items-center gap-1 text-sm font-semibold text-muted-foreground"
+                  >
+                    <Music2 className="h-4 w-4" /> Music
+                  </Label>
+                  <Input
+                    id="qc-music"
+                    value={musicPrompt}
+                    onChange={(e) => setMusicPrompt(e.target.value)}
+                    placeholder={
+                      nativeAudio
+                        ? "e.g. soft sitar, festive"
+                        : "Not available for this video model"
+                    }
+                    disabled={!nativeAudio}
+                    data-testid="qc-music"
+                  />
+                  {!nativeAudio && (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid="qc-music-note"
+                    >
+                      This video model makes silent clips. Add a music track in
+                      the{" "}
+                      <Link
+                        href="/studio?tab=video"
+                        className="font-semibold text-primary hover:underline"
+                      >
+                        advanced studio
+                      </Link>
+                      .
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <aside className="w-full flex-[1_1_300px] space-y-4 rounded-3xl border bg-card p-6 sm:max-w-sm">
+              <h2 className="font-semibold">Summary</h2>
+              <dl className="grid grid-cols-2 gap-y-2 text-sm">
+                <dt className="text-muted-foreground">Type</dt>
+                <dd className="text-right font-semibold">
+                  {!photo
+                    ? "Text to video"
+                    : needsTryOn
+                      ? "Model wears your photo"
+                      : "Animate photo"}
+                </dd>
+                <dt className="text-muted-foreground">Length · shape</dt>
+                <dd className="text-right font-semibold">
+                  {durationSec}s · {aspect}
+                </dd>
+                {creditFunded && quote && (
+                  <>
+                    <dt className="text-muted-foreground">Balance after</dt>
+                    <dd
+                      className={cn(
+                        "text-right font-semibold",
+                        !quote.sufficient && "text-destructive",
+                      )}
+                      data-testid="qc-balance-after"
+                    >
+                      {quote.balanceAfter.toLocaleString("en-IN")}
+                    </dd>
+                  </>
+                )}
+              </dl>
+              <Button
+                size="lg"
+                className="h-14 w-full rounded-2xl text-base"
+                onClick={onGenerate}
+                disabled={
+                  !canGenerate ||
+                  (creditFunded && quote ? !quote.sufficient : false)
+                }
+                data-testid="qc-generate"
+              >
+                {generateVideo.isPending ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-5 w-5" />
+                )}
+                Generate
+                {creditFunded && quote && (
+                  <span
+                    className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-sm"
+                    data-testid="qc-cost"
+                  >
+                    {quote.credits.toLocaleString("en-IN")} credits
+                  </span>
+                )}
+              </Button>
+              {needsTryOn && !tryOn && (
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid="qc-tryon-hint"
+                >
+                  First tap <strong>Dress the model</strong> and check the look.
+                  The video starts from that picture.
                 </p>
               )}
-            </div>
-          </div>
-        </section>
-
-        <aside className="w-full flex-[1_1_300px] space-y-4 rounded-3xl border bg-card p-6 sm:max-w-sm">
-          <h2 className="font-semibold">Summary</h2>
-          <dl className="grid grid-cols-2 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Type</dt>
-            <dd className="text-right font-semibold">
-              {!photo ? "Text to video" : needsTryOn ? "Model wears your photo" : "Animate photo"}
-            </dd>
-            <dt className="text-muted-foreground">Length · shape</dt>
-            <dd className="text-right font-semibold">
-              {durationSec}s · {aspect}
-            </dd>
-            {creditFunded && quote && (
-              <>
-                <dt className="text-muted-foreground">Balance after</dt>
-                <dd
-                  className={cn("text-right font-semibold", !quote.sufficient && "text-destructive")}
-                  data-testid="qc-balance-after"
+              {creditFunded && quote && !quote.sufficient && (
+                <p className="text-sm text-destructive">
+                  Not enough credits.{" "}
+                  <Link
+                    href="/settings?tab=billing"
+                    className="font-semibold underline"
+                  >
+                    Top up
+                  </Link>
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Need characters, scenes or a storyboard review?{" "}
+                <Link
+                  href="/studio?tab=video"
+                  className="font-semibold text-primary hover:underline"
                 >
-                  {quote.balanceAfter.toLocaleString("en-IN")}
-                </dd>
-              </>
-            )}
-          </dl>
-          <Button
-            size="lg"
-            className="h-14 w-full rounded-2xl text-base"
-            onClick={onGenerate}
-            disabled={!canGenerate || (creditFunded && quote ? !quote.sufficient : false)}
-            data-testid="qc-generate"
-          >
-            {generateVideo.isPending ? (
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-5 w-5" />
-            )}
-            Generate
-            {creditFunded && quote && (
-              <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-sm" data-testid="qc-cost">
-                {quote.credits.toLocaleString("en-IN")} credits
-              </span>
-            )}
-          </Button>
-          {needsTryOn && !tryOn && (
-            <p className="text-sm text-muted-foreground" data-testid="qc-tryon-hint">
-              First tap <strong>Dress the model</strong> and check the look. The video starts from that picture.
-            </p>
-          )}
-          {creditFunded && quote && !quote.sufficient && (
-            <p className="text-sm text-destructive">
-              Not enough credits.{" "}
-              <Link href="/settings?tab=billing" className="font-semibold underline">
-                Top up
-              </Link>
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Need characters, scenes or a storyboard review?{" "}
-            <Link href="/studio?tab=video" className="font-semibold text-primary hover:underline">
-              Open the advanced studio
-            </Link>
-            .
-          </p>
-        </aside>
-      </div>
+                  Open the advanced studio
+                </Link>
+                .
+              </p>
+            </aside>
+          </div>
+        </>
+      )}
     </div>
   );
 }

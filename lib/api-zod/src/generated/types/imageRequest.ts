@@ -7,6 +7,7 @@
  */
 import type { ImagePromptRecipe } from './imagePromptRecipe';
 import type { ImageRequestSize } from './imageRequestSize';
+import type { ImageRequestTryOn } from './imageRequestTryOn';
 import type { LayerPlan } from './layerPlan';
 
 export interface ImageRequest {
@@ -31,6 +32,11 @@ export interface ImageRequest {
      * @nullable
      */
   contentId?: number | null;
+  /**
+     * Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.
+     * @nullable
+     */
+  tryOn?: ImageRequestTryOn;
   /**
      * Optional object-storage path (/objects/<tenantId>/uploads/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.
      * @nullable
