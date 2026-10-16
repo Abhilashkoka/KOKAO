@@ -2111,6 +2111,103 @@ export interface PurchasedCreditCorrectionRequest {
   reason: string;
 }
 
+export type QuickCreatePresetInputVertical = typeof QuickCreatePresetInputVertical[keyof typeof QuickCreatePresetInputVertical];
+
+
+export const QuickCreatePresetInputVertical = {
+  fashion: 'fashion',
+  product: 'product',
+  service: 'service',
+  doctor: 'doctor',
+  ca: 'ca',
+} as const;
+
+export type QuickCreatePresetInputDurationSec = typeof QuickCreatePresetInputDurationSec[keyof typeof QuickCreatePresetInputDurationSec];
+
+
+export const QuickCreatePresetInputDurationSec = {
+  NUMBER_5: 5,
+  NUMBER_10: 10,
+  NUMBER_15: 15,
+  NUMBER_30: 30,
+} as const;
+
+export type QuickCreatePresetInputAspect = typeof QuickCreatePresetInputAspect[keyof typeof QuickCreatePresetInputAspect];
+
+
+export const QuickCreatePresetInputAspect = {
+  '9:16': '9:16',
+  '1:1': '1:1',
+  '16:9': '16:9',
+} as const;
+
+export interface QuickCreatePresetInput {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  label: string;
+  vertical: QuickCreatePresetInputVertical;
+  /**
+     * @minLength 1
+     * @maxLength 600
+     */
+  prompt: string;
+  durationSec: QuickCreatePresetInputDurationSec;
+  aspect: QuickCreatePresetInputAspect;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  photoHint?: string | null;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  musicPrompt?: string | null;
+  published?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1000
+     */
+  sortOrder?: number;
+}
+
+export type QuickCreatePresetVertical = typeof QuickCreatePresetVertical[keyof typeof QuickCreatePresetVertical];
+
+
+export const QuickCreatePresetVertical = {
+  fashion: 'fashion',
+  product: 'product',
+  service: 'service',
+  doctor: 'doctor',
+  ca: 'ca',
+} as const;
+
+export type QuickCreatePresetAspect = typeof QuickCreatePresetAspect[keyof typeof QuickCreatePresetAspect];
+
+
+export const QuickCreatePresetAspect = {
+  '9:16': '9:16',
+  '1:1': '1:1',
+  '16:9': '16:9',
+} as const;
+
+export interface QuickCreatePreset {
+  id: number;
+  label: string;
+  vertical: QuickCreatePresetVertical;
+  prompt: string;
+  durationSec: number;
+  aspect: QuickCreatePresetAspect;
+  /** @nullable */
+  photoHint: string | null;
+  /** @nullable */
+  musicPrompt: string | null;
+  published: boolean;
+  sortOrder: number;
+}
+
 export interface CreditQuoteLine {
   rateKey: string;
   quantity: number;

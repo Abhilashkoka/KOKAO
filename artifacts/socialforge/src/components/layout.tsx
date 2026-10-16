@@ -5,6 +5,8 @@ import {
   Wand2,
   PlusCircle,
   Clapperboard,
+  MoreHorizontal,
+  ChevronDown,
   Library,
   Calendar, 
   Palette, 
@@ -44,20 +46,29 @@ const NAV_ITEMS: {
   icon: typeof LayoutDashboard;
   feature?: FeatureId;
 }[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
   { href: "/create", label: "Create", icon: PlusCircle, feature: "aiStudio" },
   { href: "/results", label: "Results", icon: Clapperboard, feature: "aiStudio" },
+  { href: "/brand-kits", label: "Brand Kits", icon: Palette, feature: "brandKits" },
+];
+
+/** Everything else lives one click away under "More", so the sidebar stays short. */
+const MORE_NAV_ITEMS: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  feature?: FeatureId;
+}[] = [
   { href: "/studio", label: "AI Studio", icon: Wand2, feature: "aiStudio" },
   { href: "/library", label: "Content Library", icon: Library, feature: "contentLibrary" },
   { href: "/schedule", label: "Schedule", icon: Calendar, feature: "scheduling" },
   { href: "/calendar", label: "Calendar", icon: CalendarDays, feature: "calendar" },
   { href: "/campaigns", label: "Campaigns", icon: Target, feature: "campaigns" },
-  { href: "/brand-kits", label: "Brand Kits", icon: Palette, feature: "brandKits" },
   { href: "/accounts", label: "Accounts", icon: Share2, feature: "connectedAccounts" },
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/ai-styles", label: "AI Styles", icon: Sparkles },
-  { href: "/help", label: "Help", icon: LifeBuoy },
   { href: "/promoter", label: "Promoter", icon: Megaphone, feature: "creatorProgram" },
+  { href: "/help", label: "Help", icon: LifeBuoy },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -85,14 +96,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     me && (me.isSuperadmin || !me.team || role === "owner" || role === "admin"),
   );
   const { flags: featureFlags } = useFeatureFlags();
+  // Superadmin tools stay in view; everything else secondary goes under More.
   const navItems = [
     ...NAV_ITEMS.filter((item) => !item.feature || featureFlags[item.feature]),
+    ...(me?.isSuperadmin ? ADMIN_NAV_ITEMS : []),
+  ];
+  const moreItems = [
+    ...MORE_NAV_ITEMS.filter((item) => !item.feature || featureFlags[item.feature]),
     ...(me?.isSuperadmin && featureFlags.analytics
       ? [ANALYTICS_NAV_ITEM]
       : []),
     ...(canSeeHealth ? [HEALTH_NAV_ITEM] : []),
-    ...(me?.isSuperadmin ? ADMIN_NAV_ITEMS : []),
   ];
+  const isActiveHref = (href: string) =>
+    location === href || (href !== "/" && location.startsWith(href));
+  const moreHasActive = moreItems.some((item) => isActiveHref(item.href));
+  const [moreOpenState, setMoreOpen] = useState(false);
+  const moreOpen = moreOpenState || moreHasActive;
   
   if (!isLoaded) {
     return <div className="min-h-screen flex items-center justify-center"><LogoLoader label="Loading workspace..." /></div>;
@@ -110,19 +130,46 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const NavItem = ({ item }: { item: (typeof NAV_ITEMS)[number] }) => {
+    const isActive = isActiveHref(item.href);
+    return (
+      <Link href={item.href}>
+        <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-200 ${isActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
+          <item.icon className="h-5 w-5" />
+          <span className="font-medium">{item.label}</span>
+        </div>
+      </Link>
+    );
+  };
+
   const NavLinks = () => (
     <div className="flex flex-col gap-2">
-      {navItems.map((item) => {
-        const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
-        return (
-          <Link key={item.href} href={item.href}>
-            <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-200 ${isActive ? "bg-primary text-primary-foreground shadow-md shadow-primary/20" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
-              <item.icon className="h-5 w-5" />
-              <span className="font-medium">{item.label}</span>
+      {navItems.map((item) => (
+        <NavItem key={item.href} item={item} />
+      ))}
+      {moreItems.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setMoreOpen((open) => !open)}
+            aria-expanded={moreOpen}
+            disabled={moreHasActive}
+            data-testid="nav-more-toggle"
+            className="mt-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+            <span className="flex-1 font-medium">More</span>
+            <ChevronDown className={`h-4 w-4 transition-transform ${moreOpen ? "rotate-180" : ""}`} />
+          </button>
+          {moreOpen && (
+            <div className="flex flex-col gap-2" data-testid="nav-more-items">
+              {moreItems.map((item) => (
+                <NavItem key={item.href} item={item} />
+              ))}
             </div>
-          </Link>
-        );
-      })}
+          )}
+        </>
+      )}
     </div>
   );
 

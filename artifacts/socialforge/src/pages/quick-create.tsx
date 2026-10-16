@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getListVideoJobsQueryKey,
   getQuoteCreditsQueryKey,
+  getListQuickCreatePresetsQueryKey,
   useGenerateVideo,
   useGetMe,
+  useListQuickCreatePresets,
   useQuoteCredits,
   useRequestUploadUrl,
 } from "@workspace/api-client-react";
@@ -103,10 +105,40 @@ export function QuickCreatePage() {
     },
   });
 
-  const presets = useMemo(
-    () => QUICK_CREATE_PRESETS.filter((p) => p.vertical === vertical),
-    [vertical],
+  // Admin-managed starters win; the built-in list covers an empty or
+  // unreachable catalog so the page is never blank.
+  const { data: adminPresets } = useListQuickCreatePresets({
+    query: { queryKey: getListQuickCreatePresetsQueryKey(), staleTime: 5 * 60_000 },
+  });
+  const catalog = useMemo<QuickCreatePreset[]>(
+    () =>
+      adminPresets && adminPresets.length > 0
+        ? adminPresets.map((p) => ({
+            id: `admin-${p.id}`,
+            label: p.label,
+            vertical: p.vertical,
+            prompt: p.prompt,
+            durationSec: p.durationSec,
+            aspect: p.aspect,
+            photoHint: p.photoHint ?? undefined,
+            musicPrompt: p.musicPrompt ?? undefined,
+          }))
+        : QUICK_CREATE_PRESETS,
+    [adminPresets],
   );
+  const verticals = useMemo(
+    () => QUICK_CREATE_VERTICALS.filter((v) => catalog.some((p) => p.vertical === v.id)),
+    [catalog],
+  );
+  const activeVertical = verticals.some((v) => v.id === vertical)
+    ? vertical
+    : (verticals[0]?.id ?? vertical);
+  const presets = useMemo(
+    () => catalog.filter((p) => p.vertical === activeVertical),
+    [catalog, activeVertical],
+  );
+  const search = useSearch();
+  const highlightPhoto = new URLSearchParams(search).get("photo") === "1";
 
   const applyPreset = (next: QuickCreatePreset) => {
     setPreset(next);
@@ -230,10 +262,10 @@ export function QuickCreatePage() {
             Start from a template <span className="text-sm font-normal text-muted-foreground">(optional)</span>
           </h2>
           <div className="flex flex-wrap gap-2">
-            {QUICK_CREATE_VERTICALS.map((v) => (
+            {verticals.map((v) => (
               <Chip
                 key={v.id}
-                active={vertical === v.id}
+                active={activeVertical === v.id}
                 onClick={() => setVertical(v.id)}
                 testId={`qc-vertical-${v.id}`}
               >
@@ -301,7 +333,10 @@ export function QuickCreatePage() {
                 type="button"
                 onClick={() => fileInput.current?.click()}
                 disabled={uploading}
-                className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/30 text-sm font-semibold text-primary hover:bg-primary/5"
+                className={cn(
+                  "flex h-40 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/30 bg-pastel-lavender/40 text-sm font-semibold text-primary hover:bg-primary/5",
+                  highlightPhoto && "border-primary ring-4 ring-primary/20",
+                )}
                 data-testid="qc-photo-add"
               >
                 {uploading ? (
