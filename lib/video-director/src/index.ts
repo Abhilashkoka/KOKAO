@@ -54,7 +54,7 @@ export function directedCastRestriction(
   return null;
 }
 
-export const DIRECTED_MAX_ASSETS = 3;
+export const DIRECTED_MAX_ASSETS = 30;
 export const DIRECTED_MAX_OVERLAYS = 5;
 export const DIRECTED_OVERLAY_MAX_CHARS = 160;
 export const DIRECTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -168,7 +168,7 @@ export function directedBlockReason(
   if (!ctx.hasCompatibleModel)
     return "KOKAO direction needs Atlas Wan 3.0 Standard or Prime (text-to-video without a cast, reference with a saved cast), which is not configured. Ask an admin to enable it, or turn direction off.";
   if (!ctx.modelSelected) return "Choose Wan 3.0 Standard or Prime for a directed video.";
-  if (draft.assets.length > DIRECTED_MAX_ASSETS) return "Use at most 3 assets.";
+  if (draft.assets.length > DIRECTED_MAX_ASSETS) return `Use at most ${DIRECTED_MAX_ASSETS} assets.`;
   if (draft.overlays.length > DIRECTED_MAX_OVERLAYS) return "Use at most 5 text overlays.";
   if (draft.ending !== "none" || draft.brandImage !== "none") {
     if (ctx.brandKitId === null) return "Pick a brand kit to use its logo or ending.";

@@ -50,6 +50,11 @@ describe("single-generation direction boundaries", () => {
     expect(() => validateDirectedInput({ compiledPrompt: "bypass" }, 30)).toThrow();
     expect(() => validateDirectedInput({ assets: [{ objectPath: "/objects/1/a", startSec: 0, endSec: 2, placement: "corner", sha256: "forged" }] }, 30)).toThrow();
   });
+  it("accepts 30 assets and rejects a 31st asset", () => {
+    const asset = { objectPath: "/objects/1/image", startSec: 0, endSec: 2, placement: "corner" };
+    expect(() => validateDirectedInput({ assets: Array.from({ length: 30 }, () => ({ ...asset })) }, 30)).not.toThrow();
+    expect(() => validateDirectedInput({ assets: Array.from({ length: 31 }, () => ({ ...asset })) }, 30)).toThrow("Too many assets.");
+  });
   it("rejects invalid windows, oversized overlays and unsupported durations", () => {
     for (const [startSec, endSec] of [[5, 2], [-1, 3], [0, 31], [0, NaN]]) {
       expect(() => validateDirectedInput({ overlays: [{ text: "hello", startSec, endSec }] }, 30)).toThrow();

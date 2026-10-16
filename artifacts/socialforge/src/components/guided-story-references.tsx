@@ -88,14 +88,53 @@ const USES_BY_MEDIA: Record<UploadMedia, GuidedStoryReferenceUse[]> = {
 
 const RIGHTS_USES: GuidedStoryReferenceUse[] = ["voice", "voiceover", "music", "footage"];
 
+const GUIDED_UPLOAD_TYPES_BY_EXTENSION: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".aac": "audio/aac",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+};
+
+/** File pickers can omit MIME types or use generic/legacy aliases. The
+ * server still validates the uploaded bytes before accepting a reference. */
+export function guidedUploadContentType(file: Pick<File, "name" | "type">): string {
+  const type = file.type.trim().toLowerCase().split(";")[0]!;
+  const extension = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+  const inferred = GUIDED_UPLOAD_TYPES_BY_EXTENSION[extension];
+  if (!type || type === "application/octet-stream" || type === "binary/octet-stream") {
+    return inferred ?? "application/octet-stream";
+  }
+  if (type === "image/jpg" || type === "image/pjpeg") return "image/jpeg";
+  if (type === "audio/mp3" || type === "audio/x-mp3") return "audio/mpeg";
+  if (type === "audio/x-m4a") return "audio/mp4";
+  if (type === "audio/x-wav") return "audio/wav";
+  return type;
+}
+
 export const GUIDED_UPLOAD_ACCEPT = [
   "image/png", "image/jpeg", "image/webp",
   "video/mp4", "video/quicktime", "video/webm",
   "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm", "audio/aac",
-  "application/pdf", "text/plain", "text/markdown", ".md",
+  "application/pdf", "text/plain", "text/markdown",
+  ...Object.keys(GUIDED_UPLOAD_TYPES_BY_EXTENSION),
 ].join(",");
 
 type UploadMedia = "image" | "video" | "audio" | "document";
+
+/** Only locally authored upload messages may bypass the API error sanitizer. */
+class GuidedUploadError extends Error {}
 
 /** One upload as the setup form holds it. */
 export interface GuidedUploadDraft extends GuidedStoryUploadInput {
@@ -110,7 +149,8 @@ export interface GuidedUploadDraft extends GuidedStoryUploadInput {
   savedId: string | null;
 }
 
-export const MAX_GUIDED_UPLOADS = 12;
+export const MAX_GUIDED_UPLOADS = 50;
+export const MAX_GUIDED_SCENE_UPLOADS = 50;
 
 export function normalizeHandle(raw: string): string {
   return raw
@@ -145,7 +185,7 @@ function uniqueHandle(base: string, taken: string[]): string {
 }
 
 function mediaForFile(file: File): UploadMedia | null {
-  const type = file.type || (file.name.toLowerCase().endsWith(".md") ? "text/markdown" : "");
+  const type = guidedUploadContentType(file);
   if (type.startsWith("image/")) return "image";
   if (type.startsWith("video/")) return "video";
   if (type.startsWith("audio/")) return "audio";
@@ -193,10 +233,36 @@ export function uploadInputsFromDrafts(rows: GuidedUploadDraft[]): GuidedStoryUp
     }));
 }
 
+/** Keep logo assignment atomic when concurrent inspections finish. Automatic
+ * suggestions preserve the chosen logo; an explicit choice replaces it. */
+export function patchGuidedUpload(
+  rows: GuidedUploadDraft[],
+  key: string,
+  next: Partial<GuidedUploadDraft>,
+  replaceLogo = false,
+): GuidedUploadDraft[] {
+  if (!rows.some((row) => row.key === key)) return rows;
+  const anotherLogo = rows.some((row) => row.key !== key && row.use === "logo");
+  const applied: Partial<GuidedUploadDraft> =
+    next.use === "logo" && anotherLogo && !replaceLogo
+      ? { ...next, use: "other_image" }
+      : next;
+  return rows.map((row) => {
+    if (row.key === key) return { ...row, ...applied };
+    if (replaceLogo && next.use === "logo" && row.use === "logo") {
+      return { ...row, use: "other_image" };
+    }
+    return row;
+  });
+}
+
 /** A blocking problem with the uploads list, or null when it can be saved. */
 export function uploadsProblem(rows: GuidedUploadDraft[]): string | null {
   if (rows.some((row) => row.status === "uploading" || row.status === "inspecting")) {
     return "Wait for your uploads to finish.";
+  }
+  if (rows.filter((row) => row.use === "logo").length > 1) {
+    return "Choose one Logo upload. Change the other logo uploads to Other or another use.";
   }
   const handles = new Set<string>();
   for (const row of rows) {
@@ -457,8 +523,8 @@ export function GuidedStoryUploads({
   const [transcribingKey, setTranscribingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const characterHandles = rows.filter((row) => row.use === "character").map((row) => normalizeHandle(row.handle));
-  const patch = (key: string, next: Partial<GuidedUploadDraft>) =>
-    onChange((current) => current.map((row) => (row.key === key ? { ...row, ...next } : row)));
+  const patch = (key: string, next: Partial<GuidedUploadDraft>, replaceLogo = false) =>
+    onChange((current) => patchGuidedUpload(current, key, next, replaceLogo));
 
   const addFiles = async (files: FileList | null) => {
     setError(null);
@@ -501,12 +567,26 @@ export function GuidedStoryUploads({
       onChange((current) => [...current, row]);
       void (async () => {
         try {
-          const contentType = file.type || (file.name.toLowerCase().endsWith(".md") ? "text/markdown" : "application/octet-stream");
+          const contentType = guidedUploadContentType(file);
           const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
             data: { name: file.name, size: file.size, contentType },
           });
-          const put = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": contentType } });
-          if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+          let put: Response;
+          try {
+            put = await fetch(uploadURL, {
+              method: "PUT",
+              body: file,
+              headers: { "Content-Type": contentType },
+              signal: AbortSignal.timeout(120_000),
+            });
+          } catch (cause) {
+            if (cause && typeof cause === "object" && "name" in cause &&
+              (cause.name === "TimeoutError" || cause.name === "AbortError")) {
+              throw new GuidedUploadError("The upload timed out. Remove this file and add it again.");
+            }
+            throw new GuidedUploadError("The browser could not send this file to storage. Check your connection or content blocker, then remove the file and add it again.");
+          }
+          if (!put.ok) throw new GuidedUploadError(`Upload failed (${put.status}). Remove this file and add it again.`);
           patch(key, { path: objectPath, status: "inspecting" });
           const facts = await inspect.mutateAsync({ data: { path: objectPath, label: file.name } });
           const suggested = facts.suggestedUse ?? null;
@@ -521,7 +601,10 @@ export function GuidedStoryUploads({
           });
           if (facts.media === "audio") setAudioQuestionKey(key);
         } catch (cause) {
-          patch(key, { status: "failed", error: apiErrorMessage(cause, "Could not upload this file.") });
+          patch(key, {
+            status: "failed",
+            error: apiErrorMessage(cause, cause instanceof GuidedUploadError ? cause.message : "Could not upload this file."),
+          });
         } finally {
           refreshCreditBalanceSafely(queryClient);
         }
@@ -550,7 +633,7 @@ export function GuidedStoryUploads({
         <div>
           <p className="flex items-center gap-1.5 text-sm font-medium"><AtSign className="h-4 w-4" /> Your uploads <span className="font-normal text-muted-foreground">(optional)</span></p>
           <p className="text-xs text-muted-foreground">
-            Photos, videos, audio or a brief. Name each one and mention it in the topic as @name.
+            Up to 50 photos, videos, audio files or briefs. Name each one and mention it in the topic as @name.
           </p>
         </div>
         <input
@@ -558,6 +641,7 @@ export function GuidedStoryUploads({
           type="file"
           multiple
           className="hidden"
+          disabled={disabled || rows.length >= MAX_GUIDED_UPLOADS}
           accept={GUIDED_UPLOAD_ACCEPT}
           onChange={(event) => void addFiles(event.target.files)}
           data-testid="input-guided-upload-files"
@@ -567,6 +651,11 @@ export function GuidedStoryUploads({
         </Button>
       </div>
       {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
+      {rows.some((row) => row.media === "image") && (
+        <p className="text-xs text-muted-foreground">
+          One logo per story. Choosing another logo changes the previous one to Other; no files are removed.
+        </p>
+      )}
       {rows.length > 0 && (
         <ul className="space-y-2">
           {rows.map((row) => {
@@ -599,7 +688,7 @@ export function GuidedStoryUploads({
                       />
                     </div>
                     {row.status === "ready" && uses.length > 1 && (
-                      <Select value={row.use} onValueChange={(value) => patch(row.key, { use: value as GuidedStoryReferenceUse })} disabled={disabled}>
+                      <Select value={row.use} onValueChange={(value) => patch(row.key, { use: value as GuidedStoryReferenceUse }, true)} disabled={disabled}>
                         <SelectTrigger className="h-8 w-52" data-testid={`select-guided-upload-use-${row.key}`}><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {uses.map((use) => <SelectItem key={use} value={use}>{GUIDED_REFERENCE_USE_LABELS[use]}</SelectItem>)}
@@ -776,17 +865,20 @@ export function SceneReferenceToggles({
   if (!items.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid={`scene-uploads-${sceneLabel}`}>
-      <span className="text-xs font-medium text-muted-foreground">Uses:</span>
+      <span className="text-xs font-medium text-muted-foreground">Uses ({referenceIds.length}/{MAX_GUIDED_SCENE_UPLOADS}):</span>
+      <span className="text-xs text-muted-foreground">
+        Assignment limit: 50. Actual AI attachments depend on the selected model; Wan accepts 10 images and Seedance 2.5 accepts 30 images.
+      </span>
       {items.map((item) => {
         const active = referenceIds.includes(item.id);
-        const full = !active && referenceIds.length >= 3;
+        const full = !active && referenceIds.length >= MAX_GUIDED_SCENE_UPLOADS;
         return (
           <button
             key={item.id}
             type="button"
             disabled={disabled || full}
             aria-pressed={active}
-            title={full ? "A scene can use at most 3 uploads." : GUIDED_REFERENCE_USE_LABELS[item.use]}
+            title={full ? `A scene can use at most ${MAX_GUIDED_SCENE_UPLOADS} uploads.` : GUIDED_REFERENCE_USE_LABELS[item.use]}
             onClick={() => onChange(active ? referenceIds.filter((id) => id !== item.id) : [...referenceIds, item.id])}
             className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors disabled:opacity-50 ${active ? "border-primary bg-primary/10" : "text-muted-foreground hover:bg-muted"}`}
             data-testid={`toggle-scene-upload-${sceneLabel}-${item.id}`}

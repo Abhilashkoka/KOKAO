@@ -1,3 +1,4 @@
+vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 /**
  * Mobile Videos screen — 402 handling for video generation (app/videos.tsx):
  * - wallet-billed owners see the "Wallet balance too low" title with the

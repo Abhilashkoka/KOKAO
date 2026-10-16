@@ -9,7 +9,7 @@ import threadsRouter, { threadsCallbackRouter } from "../routes/threads";
 import youtubeRouter, { youtubeCallbackRouter } from "../routes/youtube";
 import adminRouter from "../routes/admin";
 import emailSettingsRouter from "../routes/emailSettings";
-import { protectedAppBrandRouter } from "../routes/appBrand";
+import { protectedAppBrandRouter, publicAppBrandRouter } from "../routes/appBrand";
 import notificationsRouter from "../routes/notifications";
 import notificationSettingsRouter from "../routes/notificationSettings";
 import pushTokensRouter from "../routes/pushTokens";
@@ -89,6 +89,8 @@ export function createAdminTestApp(): Express {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   attachLogStub(app);
+  // Match production: the branding GET is public, before tenant middleware.
+  app.use("/api", publicAppBrandRouter);
   app.use(
     "/api",
     requireTenant,

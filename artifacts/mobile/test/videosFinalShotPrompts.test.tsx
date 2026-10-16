@@ -18,6 +18,11 @@ const mockState: {
 } = { jobs: [], flags: undefined };
 
 const generateMutate = vi.fn();
+const { push, playerSource } = vi.hoisted(() => {
+  vi.stubEnv("EXPO_PUBLIC_DOMAIN", "mobile.example.test");
+  return { push: vi.fn(), playerSource: vi.fn() };
+});
+vi.mock("expo-router", () => ({ router: { push } }));
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("./apiClientMock");
@@ -44,7 +49,7 @@ vi.mock("@clerk/expo", () => ({
   useAuth: () => ({ getToken: vi.fn().mockResolvedValue("test-token") }),
 }));
 vi.mock("expo-video", () => ({
-  useVideoPlayer: () => ({}),
+  useVideoPlayer: (source: unknown) => { playerSource(source); return {}; },
   VideoView: () => null,
 }));
 vi.mock("@expo/vector-icons", () => ({
@@ -208,6 +213,20 @@ describe("Videos screen — final shot prompts", () => {
     expect(screen.getByTestId("banner-video-cancel-notice").textContent).toContain(
       "Brief prefilled",
     );
+  });
+
+  it("opens Smart Edit for a finished job and previews its current approved video", async () => {
+    vi.stubEnv("EXPO_PUBLIC_DOMAIN", "mobile.example.test");
+    mockState.jobs = [makeJob({ currentVideoPath: "/videos/approved.mp4" })];
+    renderScreen();
+    expandFirstJob();
+    fireEvent.click(screen.getByTestId("button-smart-edit-1"));
+    expect(push).toHaveBeenCalledWith({ pathname: "/smart-edit/[id]", params: { id: "1" } });
+    await waitFor(() => expect(playerSource).toHaveBeenCalledWith({
+      uri: "https://mobile.example.test/api/storage/videos/approved.mp4",
+      headers: { Authorization: "Bearer test-token" },
+    }));
+    vi.unstubAllEnvs();
   });
 
   it("generates a text_to_video job from the brief and hides the composer when videoGen is off", () => {

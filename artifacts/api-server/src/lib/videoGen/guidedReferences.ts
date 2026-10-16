@@ -44,9 +44,9 @@ import {
  * are only ever passed to models as data.
  */
 
-export const MAX_GUIDED_REFERENCES = 12;
+export const MAX_GUIDED_REFERENCES = 50;
 /** More than this turns one shot into a collage. */
-export const MAX_GUIDED_REFERENCES_PER_SCENE = 3;
+export const MAX_GUIDED_REFERENCES_PER_SCENE = 50;
 
 const MB = 1024 * 1024;
 export const GUIDED_REFERENCE_MAX_BYTES: Record<GuidedStoryReferenceMedia, number> = {
@@ -911,7 +911,10 @@ export function guidedSceneReferenceIds(value: unknown): string[] {
     const id = typeof entry === "string" ? entry.trim() : "";
     if (REFERENCE_ID_RE.test(id) && !ids.includes(id)) ids.push(id);
   }
-  return ids.slice(0, MAX_GUIDED_REFERENCES_PER_SCENE);
+  if (ids.length > MAX_GUIDED_REFERENCES_PER_SCENE) {
+    throw new GuidedReferenceInputError(`A scene can use at most ${MAX_GUIDED_REFERENCES_PER_SCENE} uploads.`);
+  }
+  return ids;
 }
 
 export function guidedRoleReferenceId(value: unknown): string | null {
@@ -945,6 +948,9 @@ export function sanitizeGuidedScriptReferences(
   const footageClaimed = new Set<string>();
   const scenes = script.scenes.map((scene) => {
     if (!scene.referenceIds) return scene;
+    if (scene.referenceIds.length > MAX_GUIDED_REFERENCES_PER_SCENE) {
+      throw new GuidedReferenceInputError(`A scene can use at most ${MAX_GUIDED_REFERENCES_PER_SCENE} uploads.`);
+    }
     const kept = scene.referenceIds
       .filter((id) => {
         const ref = byId.get(id);
@@ -954,8 +960,7 @@ export function sanitizeGuidedScriptReferences(
           footageClaimed.add(id);
         }
         return true;
-      })
-      .slice(0, MAX_GUIDED_REFERENCES_PER_SCENE);
+      });
     if (kept.length === scene.referenceIds.length) return scene;
     changed = true;
     const { referenceIds: _dropped, ...rest } = scene;
@@ -1000,7 +1005,10 @@ export function guidedSceneReferences(
       });
     }
   }
-  return out.slice(0, MAX_GUIDED_REFERENCES_PER_SCENE);
+  if (out.length > MAX_GUIDED_REFERENCES_PER_SCENE) {
+    throw new GuidedReferenceInputError(`A scene can use at most ${MAX_GUIDED_REFERENCES_PER_SCENE} uploads.`);
+  }
+  return out;
 }
 
 /** Scene upload images that are sent to the model as real references. */

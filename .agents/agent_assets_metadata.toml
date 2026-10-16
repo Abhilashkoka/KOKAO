@@ -529,3 +529,17 @@ mtime_ms = 1791217584914
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/c6c85432-43f2-4026-a402-3386758089b7/a7c81440-36c4-4378-b7ce-e1bcefbfde0b"
 storage_version_token = "1791217673411499"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "7Qz6NDOf_P-SQ4iQaHGvZ"
+uri = "file://generated-artifacts/product-correction/KOKAO-127790-exact-necklace-cutaways.mp4"
+type = "video"
+title = "Video #127790 — Exact Necklace Cutaways"
+description = "Separate 1080×1920 edited copy with the original necklace photo at 7.6–10.3 seconds and 19.4–25.5 seconds. Original audio preserved exactly; original video unchanged. No AI regeneration."
+logical_id = "7300714d-5ef8-41ae-a84d-afb920a1c265"
+content_hash = "sha256:a90e241ac612ee03af8e1fa17abfefc944fd9c3449619eba6369f08c23c75e95"
+size = 12203602
+mtime_ms = 1791980317548
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0bd4c247-9f4d-4d27-aae0-8568e44e9555/7300714d-5ef8-41ae-a84d-afb920a1c265/eea80b54-a79c-4259-b6b3-71cfd88708ca"
+storage_version_token = "1791980370853878"
+content_type = "video/mp4"

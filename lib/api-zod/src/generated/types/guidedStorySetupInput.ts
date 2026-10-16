@@ -25,7 +25,7 @@ export interface GuidedStorySetupInput {
   requirements?: GuidedStoryRequirementsInput | null;
   /**
      * Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.
-     * @maxItems 12
+     * @maxItems 50
      */
   uploads?: GuidedStoryUploadInput[];
   platform: GuidedStorySetupInputPlatform;

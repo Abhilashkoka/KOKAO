@@ -88,6 +88,7 @@ function RootLayoutNav() {
       <Stack.Screen name="settings" options={{ title: "Plan & Billing" }} />
       <Stack.Screen name="ads" options={{ title: "Ads" }} />
       <Stack.Screen name="videos" options={{ title: "Videos" }} />
+      <Stack.Screen name="smart-edit/[id]" options={{ title: "Smart Edit", presentation: "modal" }} />
       <Stack.Screen name="brand-voice" options={{ title: "Brand Voice" }} />
       <Stack.Screen name="brand-kit" options={{ title: "Brand Kit" }} />
       <Stack.Screen name="characters" options={{ title: "Characters" }} />

@@ -49,7 +49,7 @@ export function validateDirectedInput(raw: unknown, duration: number) {
   }
   if (value.ending !== undefined && !["none", "logo", "animation"].includes(String(value.ending))) throw new Error("Choose a valid brand ending.");
   if (value.brandImage !== undefined && !["none", "primary", "secondary", "icon_mark"].includes(String(value.brandImage))) throw new Error("Choose a valid brand image.");
-  for (const [key, max] of [["assets", 3], ["overlays", 5]] as const) {
+  for (const [key, max] of [["assets", 30], ["overlays", 5]] as const) {
     const entries = value[key] ?? [];
     if (!Array.isArray(entries) || entries.length > max) throw new Error(`Too many ${key}.`);
     for (const entry of entries) {

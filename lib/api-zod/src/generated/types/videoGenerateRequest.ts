@@ -52,8 +52,7 @@ export interface VideoGenerateRequest {
   presetLanguage?: string | null;
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.
-     * @maxLength 2000
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub. Text-to-video briefs have no application-level character limit. Other engines allow at most 2000 characters.
      * @nullable
      */
   prompt?: string | null;

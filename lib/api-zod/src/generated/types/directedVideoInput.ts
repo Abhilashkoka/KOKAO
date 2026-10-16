@@ -24,7 +24,7 @@ export interface DirectedVideoInput {
   brandImage?: DirectedVideoInputBrandImage;
   /**
      * Optional tenant-owned PNG/JPEG/WebP images or MP4/WebM recordings, fitted without cropping at exact times after generation.
-     * @maxItems 3
+     * @maxItems 30
      */
   assets?: DirectedVideoAsset[];
   /**

@@ -246,7 +246,7 @@ export const GUIDED_STORY_PLATFORMS: readonly PlatformContract[] = [
   { id: "tiktok", aspectRatio: "9:16", width: 1080, height: 1920, safeArea: "Keep essential action centered; reserve the bottom 320px and right 160px for controls.", durations: [15, 30, 60], mobileFirst: true },
   { id: "youtube_shorts", aspectRatio: "9:16", width: 1080, height: 1920, safeArea: "Keep essential action and text in the centered 1080x1420 area.", durations: [15, 30, 60], mobileFirst: true },
   { id: "instagram_feed", aspectRatio: "4:5", width: 1080, height: 1350, safeArea: "Keep essential action within the centered 960x1230 area.", durations: [30, 60, 90], mobileFirst: false },
-  { id: "youtube", aspectRatio: "16:9", width: 1920, height: 1080, safeArea: "Keep titles and essential action within a 5% inset on every edge.", durations: [60, 120, 180, 300], mobileFirst: false },
+  { id: "youtube", aspectRatio: "16:9", width: 1920, height: 1080, safeArea: "Keep titles and essential action within a 5% inset on every edge.", durations: [15, 20, 30, 45, 60, 120, 180, 300], mobileFirst: false },
 ];
 
 export function guidedStoryPlatform(id: string): PlatformContract | null {
@@ -1707,8 +1707,8 @@ export function validateAndRepairGuidedScript(
     if (constraints.maxSceneSeconds && endMs - startMs > constraints.maxSceneSeconds * 1000) {
       throw new VideoGenProviderError(`Scene duration exceeds the selected model's ${constraints.maxSceneSeconds}-second limit.`);
     }
-    if (!Array.isArray(item.lines) || item.lines.length === 0) {
-      throw new VideoGenProviderError(`Scene ${sceneIndex + 1} needs dialogue or narration.`);
+    if (!Array.isArray(item.lines)) {
+      throw new VideoGenProviderError(`Scene ${sceneIndex + 1} needs a spoken-lines array; use an empty array for no spoken audio.`);
     }
     let priorLineEnd = startMs;
     const lines = item.lines.map((lineEntry, lineIndex) => {
@@ -1886,6 +1886,7 @@ export async function generateGuidedStoryScript(params: {
     "Never use an empty ownerRoleId. Use JSON null for ownerless narration; every dialogue line must name an exact role id from roles.",
     `Hard spoken-word maximum: ${maxSpokenWords} total words across every dialogue and narration line. Aim for 70-90% of this budget; never exceed it.`,
     "There is no minimum spoken-word count. Visual action, reactions and natural pauses may fill the remaining runtime; do not add filler dialogue just to fill time.",
+    "When the brief requests no spoken audio, no voices, or music and sound effects only, every scene must have lines: []. Put all action and audio directions in visualDirection, never in spoken lines. This overrides spoken-word targets and opening narration instructions.",
     longScenes ? scenePolicy : [
       "Mandatory opening plan: scene 1 starts at 0ms and lasts 3-5 seconds.",
       ...(hero

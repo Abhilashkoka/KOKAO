@@ -23,8 +23,8 @@ export interface GuidedStoryScene {
      */
   productIds?: string[];
   /**
-     * Story upload ids (setup.references.items[].id) used in this scene.
-     * @maxItems 3
+     * Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.
+     * @maxItems 50
      */
   referenceIds?: string[];
   shot?: GuidedStoryShot;

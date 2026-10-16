@@ -3,7 +3,7 @@ import { CreditUsageCard, useCreditFunding } from "@/components/credit-balance";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers, Wand2, Coins, ImagePlus, Type } from "lucide-react";
+import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers, Wand2, Coins } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { isInteractiveTarget } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -88,40 +88,6 @@ export function DashboardPage() {
         </div>
         <p className="text-muted-foreground text-lg mt-1">Here's what's happening in your workspace today.</p>
       </div>
-
-      {featureFlags.aiStudio && (
-        <section aria-labelledby="dashboard-start" className="space-y-3" data-testid="dashboard-start">
-          <h2 id="dashboard-start" className="text-xl font-semibold">What are we making today?</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Link
-              href="/create"
-              className="flex items-center gap-4 rounded-3xl bg-pastel-lavender p-5 transition-transform hover:-translate-y-0.5"
-              data-testid="dashboard-start-text"
-            >
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 text-primary">
-                <Type className="h-6 w-6" />
-              </span>
-              <span>
-                <span className="block text-lg font-semibold">Start from text</span>
-                <span className="block text-sm text-muted-foreground">One sentence is enough</span>
-              </span>
-            </Link>
-            <Link
-              href="/create?photo=1"
-              className="flex items-center gap-4 rounded-3xl bg-pastel-peach p-5 transition-transform hover:-translate-y-0.5"
-              data-testid="dashboard-start-photo"
-            >
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 text-orange-700">
-                <ImagePlus className="h-6 w-6" />
-              </span>
-              <span>
-                <span className="block text-lg font-semibold">Start from photo</span>
-                <span className="block text-sm text-muted-foreground">Product, outfit or you</span>
-              </span>
-            </Link>
-          </div>
-        </section>
-      )}
 
       {!creditFunded && (credits?.total ?? 0) > 0 && <CreditUsageCard />}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

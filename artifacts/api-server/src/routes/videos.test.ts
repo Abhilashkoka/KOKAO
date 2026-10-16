@@ -1435,6 +1435,28 @@ describe("POST /api/ai/generate-video", () => {
     expect(runnerState.calls).toHaveLength(0);
   });
 
+  it("accepts a long text-to-video brief without truncating it", async () => {
+    await newTenant();
+    const prompt = "Describe the scene, camera, lighting, motion and exact sequence. ".repeat(400).trim();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const [job] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, res.body.id));
+    expect(job?.prompt).toBe(prompt);
+  });
+
+  it("keeps other video modes' prompt limit before reserving funding", async () => {
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "image_to_video", prompt: "x".repeat(2001) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/2000 characters/);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
   it("rejects a slideshow with no photos", async () => {
     await newTenant();
     const res = await request(app)

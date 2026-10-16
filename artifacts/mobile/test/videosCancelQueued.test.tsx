@@ -1,3 +1,4 @@
+vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 /**
  * Regression guard for cancelling a queued video from the mobile Videos
  * screen (app/videos.tsx):

@@ -230,6 +230,15 @@ export function seedanceScenePrompt(input: SeedanceSceneInput): string {
         ...spoken,
       ].join("\n"),
     );
+  } else if (input.nativeAudio !== false) {
+    blocks.push(
+      [
+        "[AUDIO]",
+        "No spoken audio: no dialogue, narration, voiceover, spoken words, singing or vocals.",
+        "Use only instrumental music, ambience and sound effects, following the scene's audio directions.",
+        "Do not read visual directions or on-screen lettering aloud.",
+      ].join("\n"),
+    );
   }
   const sound: string[] = [];
   if (input.sfx) sound.push(`<${input.sfx}>`);
@@ -238,7 +247,9 @@ export function seedanceScenePrompt(input: SeedanceSceneInput): string {
   if (sound.length) blocks.push(["[AUDIO AND ON-SCREEN]", ...sound].join("\n"));
   const exclusions = ["No logos. No watermarks."];
   if (!input.caption) exclusions.unshift("No captions, subtitles or on-screen text.");
-  if (!input.music) exclusions.push("No background music.");
+  if (!input.music && (lines.length > 0 || input.nativeAudio === false)) {
+    exclusions.push("No background music.");
+  }
   exclusions.push(input.lookExclusion ?? SEEDANCE_DEFAULT_LOOK_EXCLUSION);
   blocks.push(["[EXCLUSIONS]", ...exclusions].join("\n"));
   blocks.push(

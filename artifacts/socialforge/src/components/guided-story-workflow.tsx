@@ -2871,7 +2871,7 @@ function ScriptReview(props: any) {
               </div>
               <div className="space-y-3">
                 {scene.lines.length === 0 ? (
-                  <p className="text-sm italic text-muted-foreground">No spoken lines in this scene.</p>
+                  <p className="text-sm italic text-muted-foreground">No spoken lines in this scene. Visual directions will not be read aloud.</p>
                 ) : scene.lines.map((line, lineIndex) => {
                   const owner = editedScript.roles.find((role) => role.id === line.ownerRoleId);
                   return (

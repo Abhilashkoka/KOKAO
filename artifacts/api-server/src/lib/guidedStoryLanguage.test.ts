@@ -112,6 +112,9 @@ describe("ElevenLabs localized speech", () => {
       text,
       model_id: "eleven_v3",
       language_code: "te",
+      voice_settings: {
+        stability: 0.5, similarity_boost: 0.9, style: 0, use_speaker_boost: true,
+      },
     });
   });
 
@@ -131,6 +134,9 @@ describe("ElevenLabs localized speech", () => {
     expect(JSON.parse(String((fetchSpy.mock.calls[0]![1] as RequestInit).body))).toEqual({
       text,
       model_id: "eleven_multilingual_v2",
+      voice_settings: {
+        stability: 0.55, similarity_boost: 0.9, style: 0, use_speaker_boost: true,
+      },
     });
     await expect(provider.speakWithReceipt!({
       apiKey: "test", voiceId: "voice", text: "తెలుగు", modelId: "eleven_multilingual_v2", languageCode: "te",

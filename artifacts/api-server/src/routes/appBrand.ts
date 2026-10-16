@@ -74,6 +74,12 @@ protectedAppBrandRouter.put(
     }
 
     const values = parsed.data;
+    // The persisted pixel height is an integer; reject fractional input before
+    // PostgreSQL rather than turning a client validation error into a 500.
+    if (values.sidebarLogoHeight !== undefined && !Number.isInteger(values.sidebarLogoHeight)) {
+      res.status(400).json({ error: "Sidebar logo height must be a whole number." });
+      return;
+    }
     const oldBrand = await loadBrand();
 
     await db

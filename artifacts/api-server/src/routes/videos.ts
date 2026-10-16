@@ -10877,6 +10877,10 @@ async function generateVideoHandler(
     return;
   }
   let body = parsed.data;
+  if (body.engine !== "text_to_video" && body.prompt && body.prompt.length > 2000) {
+    res.status(400).json({ error: "Invalid prompt: use at most 2000 characters for this video mode." });
+    return;
+  }
   if (body.directedVideo) {
     try {
       const { validateDirectedInput } = await import("../lib/videoGen/directedVideo");

@@ -493,6 +493,28 @@ describe("guided story platform contracts", () => {
     expect(normalizeGuidedStoryLocale("fr-FR")).toBeNull();
   });
 
+  it("accepts a visual-only script without inventing dialogue or changing scene timing", () => {
+    const raw = validRaw();
+    raw.scenes[0]!.lines = [];
+    const script = validateAndRepairGuidedScript(raw, { durationSeconds: 30 }, "en");
+    expect(script.scenes[0]!.lines).toEqual([]);
+    expect(script.scenes[0]!.startMs).toBe(0);
+    expect(script.scenes[0]!.endMs).toBe(30_000);
+    expect(script.scenes[0]!.visualDirection).toBe(raw.scenes[0]!.visualDirection);
+    expect(script.runtimeSeconds).toBe(30);
+  });
+
+  it("still rejects missing spoken-line arrays and blank spoken lines", () => {
+    const missing = validRaw() as any;
+    delete missing.scenes[0].lines;
+    expect(() => validateAndRepairGuidedScript(missing, { durationSeconds: 30 }))
+      .toThrow(/spoken-lines array/);
+    const blank = validRaw();
+    blank.scenes[0]!.lines[0]!.text = "";
+    expect(() => validateAndRepairGuidedScript(blank, { durationSeconds: 30 }))
+      .toThrow(/invalid timing or text/);
+  });
+
   it("preserves approved spoken text byte-for-byte", () => {
     const raw = validRaw();
     const exact = `  ${Array.from({ length: 18 }, () => "మనం").join(" ")}.  `;
@@ -559,6 +581,14 @@ describe("guided story platform contracts", () => {
       expect(platform.durations.length).toBeGreaterThan(0);
       expect("rolePlans" in platform).toBe(false);
     }
+  });
+
+  it("offers short YouTube landscape runtimes without changing the format", () => {
+    const youtube = GUIDED_STORY_PLATFORMS.find((platform) => platform.id === "youtube");
+    expect(youtube?.durations).toEqual([15, 20, 30, 45, 60, 120, 180, 300]);
+    expect(youtube?.aspectRatio).toBe("16:9");
+    expect(youtube?.width).toBe(1920);
+    expect(youtube?.height).toBe(1080);
   });
 });
 

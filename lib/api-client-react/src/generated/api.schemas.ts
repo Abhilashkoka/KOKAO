@@ -2111,103 +2111,6 @@ export interface PurchasedCreditCorrectionRequest {
   reason: string;
 }
 
-export type QuickCreatePresetInputVertical = typeof QuickCreatePresetInputVertical[keyof typeof QuickCreatePresetInputVertical];
-
-
-export const QuickCreatePresetInputVertical = {
-  fashion: 'fashion',
-  product: 'product',
-  service: 'service',
-  doctor: 'doctor',
-  ca: 'ca',
-} as const;
-
-export type QuickCreatePresetInputDurationSec = typeof QuickCreatePresetInputDurationSec[keyof typeof QuickCreatePresetInputDurationSec];
-
-
-export const QuickCreatePresetInputDurationSec = {
-  NUMBER_5: 5,
-  NUMBER_10: 10,
-  NUMBER_15: 15,
-  NUMBER_30: 30,
-} as const;
-
-export type QuickCreatePresetInputAspect = typeof QuickCreatePresetInputAspect[keyof typeof QuickCreatePresetInputAspect];
-
-
-export const QuickCreatePresetInputAspect = {
-  '9:16': '9:16',
-  '1:1': '1:1',
-  '16:9': '16:9',
-} as const;
-
-export interface QuickCreatePresetInput {
-  /**
-     * @minLength 1
-     * @maxLength 60
-     */
-  label: string;
-  vertical: QuickCreatePresetInputVertical;
-  /**
-     * @minLength 1
-     * @maxLength 600
-     */
-  prompt: string;
-  durationSec: QuickCreatePresetInputDurationSec;
-  aspect: QuickCreatePresetInputAspect;
-  /**
-     * @maxLength 80
-     * @nullable
-     */
-  photoHint?: string | null;
-  /**
-     * @maxLength 200
-     * @nullable
-     */
-  musicPrompt?: string | null;
-  published?: boolean;
-  /**
-     * @minimum 0
-     * @maximum 1000
-     */
-  sortOrder?: number;
-}
-
-export type QuickCreatePresetVertical = typeof QuickCreatePresetVertical[keyof typeof QuickCreatePresetVertical];
-
-
-export const QuickCreatePresetVertical = {
-  fashion: 'fashion',
-  product: 'product',
-  service: 'service',
-  doctor: 'doctor',
-  ca: 'ca',
-} as const;
-
-export type QuickCreatePresetAspect = typeof QuickCreatePresetAspect[keyof typeof QuickCreatePresetAspect];
-
-
-export const QuickCreatePresetAspect = {
-  '9:16': '9:16',
-  '1:1': '1:1',
-  '16:9': '16:9',
-} as const;
-
-export interface QuickCreatePreset {
-  id: number;
-  label: string;
-  vertical: QuickCreatePresetVertical;
-  prompt: string;
-  durationSec: number;
-  aspect: QuickCreatePresetAspect;
-  /** @nullable */
-  photoHint: string | null;
-  /** @nullable */
-  musicPrompt: string | null;
-  published: boolean;
-  sortOrder: number;
-}
-
 export interface CreditQuoteLine {
   rateKey: string;
   quantity: number;
@@ -6400,7 +6303,7 @@ export interface GuidedStorySetupInput {
   requirements?: GuidedStoryRequirementsInput | null;
   /**
      * Story uploads addressable as @handle. Omit on an update to keep the current uploads; send [] to clear them. Stored as setup.references.
-     * @maxItems 12
+     * @maxItems 50
      */
   uploads?: GuidedStoryUploadInput[];
   platform: GuidedStorySetupInputPlatform;
@@ -6926,8 +6829,8 @@ export interface GuidedStoryScene {
      */
   productIds?: string[];
   /**
-     * Story upload ids (setup.references.items[].id) used in this scene.
-     * @maxItems 3
+     * Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.
+     * @maxItems 50
      */
   referenceIds?: string[];
   shot?: GuidedStoryShot;
@@ -9277,7 +9180,7 @@ export interface DirectedVideoInput {
   brandImage?: DirectedVideoInputBrandImage;
   /**
      * Optional tenant-owned PNG/JPEG/WebP images or MP4/WebM recordings, fitted without cropping at exact times after generation.
-     * @maxItems 3
+     * @maxItems 30
      */
   assets?: DirectedVideoAsset[];
   /**
@@ -9460,8 +9363,7 @@ export interface VideoGenerateRequest {
   presetLanguage?: string | null;
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.
-     * @maxLength 2000
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub. Text-to-video briefs have no application-level character limit. Other engines allow at most 2000 characters.
      * @nullable
      */
   prompt?: string | null;

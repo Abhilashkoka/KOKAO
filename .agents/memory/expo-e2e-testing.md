@@ -4,6 +4,9 @@ description: Why browser e2e against the Expo web artifact fails and how to veri
 ---
 
 - The Expo artifact lives on its own domain (`$REPLIT_EXPO_DEV_DOMAIN`), separate from the main dev domain. Clerk's programmatic test sign-in sets its session on the main domain only — it does NOT carry over to the Expo domain, so the mobile app still shows its sign-in screen afterward.
+- External production Clerk keys are domain-bound and can prevent Clerk initialization entirely on the Expo preview host; this can look like an indefinite branded loading screen.
+  **Why:** preview startup and temporary test sign-in both failed on the separate Expo host before any feature code ran.
+  **How to apply:** check Clerk origin/redirect errors before debugging mobile screens. Use owner-controlled development tenant configuration for previews; do not loosen production restrictions or replace production keys.
 - The testing subagent repeatedly drifted to the desktop web app (top "KOKA" navbar) and reported its UI as "bugs" in the mobile app. Host-assertion instructions in the plan helped but did not fully prevent this.
 - `runTest` runs inside the code_execution sandbox with a hard 10-minute cap; long mobile plans (sign-up + AI generation) time out. Keep plans short, and note that all workflows in this project restart periodically mid-test, causing false failures.
 - **Reliable fallback:** verify the mobile app's server contract directly — use the Clerk backend API (`CLERK_SECRET_KEY`) to create a user, session, and session token, then curl the API with `Authorization: Bearer <jwt>` (same mechanism as the mobile client's `setAuthTokenGetter`). Clean up the Clerk user afterward.

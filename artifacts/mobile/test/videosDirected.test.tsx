@@ -1,3 +1,4 @@
+vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 import React from "react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";

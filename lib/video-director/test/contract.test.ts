@@ -60,9 +60,9 @@ describe.each([["shared", shared], ["mobile", mobile], ["web", web]] as const)("
   });
 
   it("pins exact count and text limits", () => {
-    expect([api.DIRECTED_MAX_ASSETS, api.DIRECTED_MAX_OVERLAYS, api.DIRECTED_OVERLAY_MAX_CHARS]).toEqual([3, 5, 160]);
-    expect(api.directedBlockReason(draft({ assets: Array(3).fill(asset), overlays: Array(5).fill({ ...overlay, text: "x".repeat(160) }) }), ctx)).toBeNull();
-    expect(api.directedBlockReason(draft({ assets: Array(4).fill(asset) }), ctx)).toBe("Use at most 3 assets.");
+    expect([api.DIRECTED_MAX_ASSETS, api.DIRECTED_MAX_OVERLAYS, api.DIRECTED_OVERLAY_MAX_CHARS]).toEqual([30, 5, 160]);
+    expect(api.directedBlockReason(draft({ assets: Array(30).fill(asset), overlays: Array(5).fill({ ...overlay, text: "x".repeat(160) }) }), ctx)).toBeNull();
+    expect(api.directedBlockReason(draft({ assets: Array(31).fill(asset) }), ctx)).toBe("Use at most 30 assets.");
     expect(api.directedBlockReason(draft({ overlays: Array(6).fill(overlay) }), ctx)).toBe("Use at most 5 text overlays.");
     expect(api.directedBlockReason(draft({ overlays: [{ ...overlay, text: "x".repeat(161) }] }), ctx)).toMatch(/160 characters/);
     expect(api.directedBlockReason(draft({ overlays: [{ ...overlay, text: " \n " }] }), ctx)).toMatch(/exact text/);

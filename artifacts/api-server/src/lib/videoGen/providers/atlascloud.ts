@@ -277,6 +277,15 @@ export function atlasCloudRequestBody(input: VideoGenInput): Record<string, unkn
   const imageMode = Boolean(input.image);
   const assetIds = input.assetIds ?? [];
   const referenceMode = ATLASCLOUD_REFERENCE_MODELS.has(input.model);
+  if (referenceMode) {
+    const maximum = isAtlasWanReferenceModel(input.model) ? 10 : 30;
+    if (assetIds.length > maximum) {
+      throw new VideoGenProviderError(
+        `Atlas Cloud ${input.model} accepts at most ${maximum} image references per generation, including character and backdrop images. This request contains ${assetIds.length}. No references will be dropped; reduce the scene references or select a compatible model.`,
+        400,
+      );
+    }
+  }
   const wanMode = ATLASCLOUD_WAN_MODELS.has(input.model);
   const referencesAreUrls = isAtlasWanReferenceModel(input.model);
   if (
@@ -588,6 +597,9 @@ export async function generateWithAtlasCloud(
   if (taskId) {
     prediction = { id: taskId, status: "processing" };
   } else {
+    // Validate limits before metering or persisting the non-idempotent submit
+    // fence. Local validation errors must not look like uncertain submissions.
+    const requestBody = atlasCloudRequestBody(input);
     // The documented API has no idempotency key. Never retry this create call:
     // an ambiguous POST may have already purchased a prediction.
     await input.onProviderSubmitStarted?.();
@@ -608,7 +620,7 @@ export async function generateWithAtlasCloud(
         let response: Response;
         try {
           response = await videoGenFetch(GENERATE_URL, {
-            method: "POST", headers, body: JSON.stringify(atlasCloudRequestBody(input)),
+            method: "POST", headers, body: JSON.stringify(requestBody),
           });
         } catch {
           throw new VideoGenProviderError(

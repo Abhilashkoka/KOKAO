@@ -3,6 +3,12 @@ name: Atlas Cloud provider
 description: Safety and lifecycle rules for Atlas Cloud video generation and fictional-character assets.
 ---
 
+Treat advertised reference totals as multimodal totals, not image-only quotas or guarantees that every upload is attached. Validate the exact model's schema rather than generalizing across Atlas models.
+
+**Why:** A request for 50 scene references exposed a distinction between story assignments, image attachments, and image/video/audio provider quotas. Wan and Seedance share a provider but have different limits and transports.
+
+**How to apply:** Keep assignment limits separate from paid-request limits, count cast/backdrop attachments too, reject overflow before the submission fence, and never silently truncate references.
+
 Wan reference models must use approved media URLs in their `refers` input, not Seedance Asset Library identifiers. Keep Wan generation on explicit durations until smart-duration reservation and actual-duration settlement are supported together.
 
 **Why:** Sharing an Atlas provider does not imply sharing Seedance's request contract, and an unknown output duration cannot safely use a fixed-duration credit reservation.

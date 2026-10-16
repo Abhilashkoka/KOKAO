@@ -15,3 +15,9 @@ Heavy shared-library regeneration/typechecking can also delay the frontend's bui
 **Why:** The frontend timed out while compilers were busy, then built and served normally after those checks finished, without any source or port-configuration change.
 
 **How to apply:** Distinguish an unfinished build from an actual port mismatch or code error. Finish resource-heavy checks before retrying the managed frontend workflow; avoid changing working startup commands just to bypass contention.
+
+Startup failures can also appear as a Vitest fork-worker handshake timeout or an isolated test-database schema setup timeout, followed by misleading “No test files found” output.
+
+**Why:** A full validation run hit both startup timeouts while mobile/web tests passed; the affected client package and repaired API tests passed separately.
+
+**How to apply:** Inspect the first failure, distinguish setup timeouts from assertions, and verify affected packages separately. Never disable database isolation or reuse Preview data to make setup pass. Audit any completion-validation skip with the exact timeout and separate checks that passed.

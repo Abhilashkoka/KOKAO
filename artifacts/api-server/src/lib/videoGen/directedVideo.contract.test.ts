@@ -61,7 +61,7 @@ describe("client-accepted briefs against independent server rules", () => {
   it.each([
     ["optional fields absent", draft()],
     ["maximum assets and overlays", draft({
-      assets: Array.from({ length: 3 }, (_, i) => ({ ...asset, key: `${i}`, placement: i === 0 ? "full_frame" : "corner" })),
+      assets: Array.from({ length: 30 }, (_, i) => ({ ...asset, key: `${i}`, placement: i === 0 ? "full_frame" : "corner" })),
       overlays: Array.from({ length: 5 }, (_, i) => ({ ...overlay, key: `${i}`, text: "x".repeat(160) })),
     })],
     ["minimum windows", draft({ assets: [{ ...asset, endSec: 0.1 }], overlays: [{ ...overlay, endSec: 0.1 }] })],
@@ -80,7 +80,7 @@ describe("client-accepted briefs against independent server rules", () => {
   });
 
   it.each([
-    ["assets", draft({ assets: Array(4).fill(asset) }), /Too many assets/],
+    ["assets", draft({ assets: Array(31).fill(asset) }), /Too many assets/],
     ["overlays", draft({ overlays: Array(6).fill(overlay) }), /Too many overlays/],
     ["text length", draft({ overlays: [{ ...overlay, text: "x".repeat(161) }] }), /1–160/],
     ["blank text", draft({ overlays: [{ ...overlay, text: "  " }] }), /1–160/],

@@ -1,3 +1,4 @@
+vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 /**
  * Mobile Videos screen — pre-generate wallet cost estimate (app/videos.tsx):
  * - wallet-billed workspaces with a non-zero video rate show the estimate

@@ -20,15 +20,43 @@ import {
   GuidedRequirementChecklist,
   GuidedRequirementsEditor,
   GuidedStoryUploads,
+  SceneReferenceToggles,
+  MAX_GUIDED_UPLOADS,
+  MAX_GUIDED_SCENE_UPLOADS,
   GuidedVideoCategoryQuestion,
   EMPTY_REQUIREMENTS,
+  GUIDED_UPLOAD_ACCEPT,
+  guidedUploadContentType,
   TopicMentionHelper,
   mentionedHandles,
+  patchGuidedUpload,
   requirementsInput,
   uploadInputsFromDrafts,
   uploadsProblem,
   type GuidedUploadDraft,
 } from "./guided-story-references";
+
+describe("Guided scene reference capacity", () => {
+  it("allows a fourth reference and keeps the selected references", () => {
+    const onChange = vi.fn();
+    const items = Array.from({ length: 4 }, (_, i) => ({
+      id: `r${i + 1}`, handle: `prop_${i + 1}`, use: "prop", media: "image",
+      path: `/objects/1/uploads/prop-${i + 1}`,
+    }));
+    render(<SceneReferenceToggles
+      draft={{ setup: { references: { version: 1, items } } } as any}
+      referenceIds={["r1", "r2", "r3"]}
+      onChange={onChange}
+      sceneLabel="test"
+    />);
+    expect(MAX_GUIDED_UPLOADS).toBe(50);
+    expect(MAX_GUIDED_SCENE_UPLOADS).toBe(50);
+    const fourth = screen.getByTestId("toggle-scene-upload-test-r4") as HTMLButtonElement;
+    expect(fourth.disabled).toBe(false);
+    fireEvent.click(fourth);
+    expect(onChange).toHaveBeenCalledWith(["r1", "r2", "r3", "r4"]);
+  });
+});
 
 function wrap(node: ReactNode) {
   return <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>;
@@ -63,6 +91,74 @@ beforeEach(() => {
 });
 
 describe("upload helpers", () => {
+  it("keeps the selected logo when another image inspection suggests Logo", () => {
+    const rows = [
+      row({ key: "logo", handle: "logo_full", use: "logo", notes: "Keep lettering exact." }),
+      row({ key: "new", handle: "new_image", use: "other_image", status: "inspecting" }),
+    ];
+    const updated = patchGuidedUpload(rows, "new", { use: "logo", status: "ready" });
+    expect(updated.map((item) => item.use)).toEqual(["logo", "other_image"]);
+    expect(updated[0]).toEqual(rows[0]);
+    expect(updated[1]!.status).toBe("ready");
+  });
+
+  it("switches a manually chosen logo without deleting files or reference details", () => {
+    const rows = [
+      row({ key: "old", handle: "old_logo", use: "logo", notes: "Keep these notes." }),
+      row({ key: "new", handle: "new_logo", use: "other_image", path: "/objects/1/uploads/new" }),
+    ];
+    const updated = patchGuidedUpload(rows, "new", { use: "logo" }, true);
+    expect(updated.map((item) => item.use)).toEqual(["other_image", "logo"]);
+    expect(updated[0]).toEqual({ ...rows[0], use: "other_image" });
+    expect(updated[1]).toEqual({ ...rows[1], use: "logo" });
+    expect(rows[0]!.use).toBe("logo");
+  });
+
+  it("does not create duplicate logos when two inspections finish in sequence", () => {
+    const initial = [
+      row({ key: "first", handle: "first", use: "other_image" }),
+      row({ key: "second", handle: "second", use: "other_image" }),
+    ];
+    const first = patchGuidedUpload(initial, "first", { use: "logo" });
+    const second = patchGuidedUpload(first, "second", { use: "logo" });
+    expect(second.map((item) => item.use)).toEqual(["logo", "other_image"]);
+  });
+
+  it("does not demote the current logo for an upload that was removed", () => {
+    const rows = [row({ key: "logo", use: "logo" })];
+    expect(patchGuidedUpload(rows, "removed", { use: "logo" }, true)).toBe(rows);
+  });
+
+  it("explains duplicate logo assignments before submitting to the server", () => {
+    expect(uploadsProblem([
+      row({ key: "first", handle: "first", use: "logo" }),
+      row({ key: "second", handle: "second", use: "logo" }),
+    ])).toMatch(/Choose one Logo upload/);
+  });
+
+  it.each([
+    ["photo.PNG", "", "image/png"],
+    ["photo.jpeg", "application/octet-stream", "image/jpeg"],
+    ["photo.JPG", "", "image/jpeg"],
+    ["voice.MP3", "", "audio/mpeg"],
+    ["voice.m4a", "application/octet-stream", "audio/mp4"],
+    ["voice.wav", "", "audio/wav"],
+    ["voice.ogg", "", "audio/ogg"],
+    ["photo.jpg", "image/pjpeg", "image/jpeg"],
+    ["voice.mp3", "audio/mp3", "audio/mpeg"],
+    ["voice.wav", "audio/x-wav", "audio/wav"],
+    ["recording.webm", "audio/webm", "audio/webm"],
+    ["unknown.bin", "", "application/octet-stream"],
+  ])("normalizes the upload content type for %s (%s)", (name, type, expected) => {
+    expect(guidedUploadContentType({ name, type })).toBe(expected);
+  });
+
+  it("offers explicit image and audio extensions to file pickers", () => {
+    expect(GUIDED_UPLOAD_ACCEPT.split(",")).toEqual(expect.arrayContaining([
+      ".png", ".jpg", ".jpeg", ".mp3", ".m4a", ".wav", ".ogg", ".aac",
+    ]));
+  });
+
   it("sends only finished rows with normalized handles", () => {
     expect(uploadInputsFromDrafts([row({ handle: "@Night Serum" }), row({ key: "k2", status: "uploading" })])).toEqual([
       expect.objectContaining({ handle: "night_serum", use: "product", rightsConfirmed: null }),
@@ -136,6 +232,88 @@ function UploadsHarness() {
 }
 
 describe("GuidedStoryUploads", () => {
+  it("preserves the existing logo when a newly uploaded image is automatically labelled Logo", async () => {
+    api.requestUrl.mockResolvedValue({ uploadURL: "https://upload", objectPath: "/objects/1/uploads/new" });
+    api.inspect.mockResolvedValue({
+      media: "image", durationSeconds: null, aiDescription: "A logo image.", aiError: null,
+      allowedUses: ["logo", "other_image"], suggestedUse: "logo",
+    });
+    function LogoHarness() {
+      const [rows, setRows] = useState<GuidedUploadDraft[]>([
+        row({ key: "existing", handle: "logo_full", use: "logo" }),
+      ]);
+      return <>
+        <GuidedStoryUploads rows={rows} onChange={setRows} hasBrandKit />
+        <pre data-testid="logo-rows">{JSON.stringify(rows.map(({ handle, use, status }) => ({ handle, use, status })))}</pre>
+      </>;
+    }
+    render(wrap(<LogoHarness />));
+    fireEvent.change(screen.getByTestId("input-guided-upload-files"), {
+      target: { files: [new File(["x"], "extra.png", { type: "image/png" })] },
+    });
+    await waitFor(() => expect(screen.getByTestId("logo-rows").textContent).toContain('"handle":"extra","use":"other_image","status":"ready"'));
+    expect(screen.getByTestId("logo-rows").textContent).toContain('"handle":"logo_full","use":"logo"');
+  });
+
+  it.each([
+    ["image.PNG", "", "image/png", "image"],
+    ["image.jpeg", "application/octet-stream", "image/jpeg", "image"],
+    ["sound.MP3", "", "audio/mpeg", "audio"],
+    ["sound.m4a", "application/octet-stream", "audio/mp4", "audio"],
+  ])("uploads %s when the picker omits a usable MIME type", async (name, type, contentType, media) => {
+    api.requestUrl.mockResolvedValue({ uploadURL: "https://upload", objectPath: "/objects/1/uploads/x" });
+    api.inspect.mockResolvedValue({
+      media, durationSeconds: null, aiDescription: null, aiError: null,
+      allowedUses: media === "image" ? ["character"] : ["voice"], suggestedUse: null,
+    });
+    render(wrap(<UploadsHarness />));
+    fireEvent.change(screen.getByTestId("input-guided-upload-files"), {
+      target: { files: [new File(["x"], name, { type })] },
+    });
+    await waitFor(() => expect(screen.getByTestId("rows").textContent).toContain('"status":"ready"'));
+    expect(api.requestUrl).toHaveBeenCalledWith({
+      data: { name, size: 1, contentType },
+    });
+    expect(fetch).toHaveBeenCalledWith("https://upload", expect.objectContaining({
+      method: "PUT", headers: { "Content-Type": contentType },
+    }));
+    expect(api.inspect).toHaveBeenCalledWith({ data: { path: "/objects/1/uploads/x", label: name } });
+  });
+
+  it("shows a useful storage connection error instead of leaving the upload pending", async () => {
+    api.requestUrl.mockResolvedValue({ uploadURL: "https://upload", objectPath: "/objects/1/uploads/x" });
+    vi.mocked(fetch).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(wrap(<UploadsHarness />));
+    fireEvent.change(screen.getByTestId("input-guided-upload-files"), {
+      target: { files: [new File(["x"], "photo.png", { type: "image/png" })] },
+    });
+    await screen.findByText(/browser could not send this file to storage/);
+    expect(screen.getByTestId("rows").textContent).toContain('"status":"failed"');
+    expect(api.inspect).not.toHaveBeenCalled();
+  });
+
+  it("explains an upload timeout", async () => {
+    api.requestUrl.mockResolvedValue({ uploadURL: "https://upload", objectPath: "/objects/1/uploads/x" });
+    vi.mocked(fetch).mockRejectedValue(new DOMException("Request timed out", "TimeoutError"));
+    render(wrap(<UploadsHarness />));
+    fireEvent.change(screen.getByTestId("input-guided-upload-files"), {
+      target: { files: [new File(["x"], "photo.png", { type: "image/png" })] },
+    });
+    await screen.findByText(/upload timed out/);
+    expect(api.inspect).not.toHaveBeenCalled();
+  });
+
+  it("shows a rejected storage upload without running inspection", async () => {
+    api.requestUrl.mockResolvedValue({ uploadURL: "https://upload", objectPath: "/objects/1/uploads/x" });
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 403 } as Response);
+    render(wrap(<UploadsHarness />));
+    fireEvent.change(screen.getByTestId("input-guided-upload-files"), {
+      target: { files: [new File(["x"], "photo.png", { type: "image/png" })] },
+    });
+    await screen.findByText(/Upload failed \(403\)/);
+    expect(api.inspect).not.toHaveBeenCalled();
+  });
+
   it("uploads, applies the AI suggestion and asks how to use audio", async () => {
     api.requestUrl.mockResolvedValue({ uploadURL: "https://upload", objectPath: "/objects/1/uploads/x" });
     api.inspect.mockResolvedValueOnce({

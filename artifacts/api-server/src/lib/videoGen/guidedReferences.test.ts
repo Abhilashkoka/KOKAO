@@ -16,6 +16,9 @@ import {
   guidedRequirementChecks,
   guidedRequirementsScriptBrief,
   guidedSceneReferences,
+  guidedSceneReferenceIds,
+  MAX_GUIDED_REFERENCES,
+  MAX_GUIDED_REFERENCES_PER_SCENE,
   mentionedReferenceHandles,
   normalizeGuidedRequirements,
   normalizeReferenceHandle,
@@ -157,6 +160,32 @@ describe("freezeGuidedReferences", () => {
 });
 
 describe("script integration", () => {
+  it("preserves all 50 scene references through parsing, sanitizing and rendering", () => {
+    const items = Array.from({ length: 50 }, (_, i) => ref({
+      id: `r${i + 1}`, handle: `prop_${i + 1}`, use: "prop",
+      path: `/objects/1/uploads/prop-${i + 1}`,
+    }));
+    const ids = items.map((item) => item.id);
+    const references: GuidedStoryReferenceLibrary = { version: 1, items };
+    expect(MAX_GUIDED_REFERENCES).toBe(50);
+    expect(MAX_GUIDED_REFERENCES_PER_SCENE).toBe(50);
+    expect(guidedSceneReferenceIds(ids)).toEqual(ids);
+    const clean = sanitizeGuidedScriptReferences({
+      ...script, scenes: [{ ...script.scenes[0]!, referenceIds: ids }],
+    }, references);
+    expect(clean.scenes[0]?.referenceIds).toEqual(ids);
+    expect(guidedSceneReferences(references, ids).map((item) => item.id)).toEqual(ids);
+    expect(guidedReferenceScriptBrief(references)).toContain("at most 50 per scene");
+  });
+
+  it("rejects a 51st scene reference instead of silently dropping it", () => {
+    const ids = Array.from({ length: 51 }, (_, i) => `r${i + 1}`);
+    expect(() => guidedSceneReferenceIds(ids)).toThrow(/at most 50 uploads/);
+    expect(() => sanitizeGuidedScriptReferences({
+      ...script, scenes: [{ ...script.scenes[0]!, referenceIds: ids }],
+    }, library)).toThrow(/at most 50 uploads/);
+  });
+
   it("briefs the writer with uploads as data and use rules", () => {
     const brief = guidedReferenceScriptBrief(library)!;
     expect(brief).toContain("id r2, @maya: Character");

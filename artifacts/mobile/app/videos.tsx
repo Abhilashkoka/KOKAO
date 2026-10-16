@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
 import * as Clipboard from "expo-clipboard";
 import { useVideoPlayer, VideoView } from "expo-video";
+import { router } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -164,8 +165,8 @@ function JobVideoPlayer({ job }: { job: VideoJob }) {
   }, [getToken]);
 
   const uri =
-    domain && token && job.videoPath
-      ? `https://${domain}/api/storage${job.videoPath}`
+    domain && token && (job.currentVideoPath ?? job.videoPath)
+      ? `https://${domain}/api/storage${job.currentVideoPath ?? job.videoPath}`
       : null;
   const player = useVideoPlayer(
     uri ? { uri, headers: { Authorization: `Bearer ${token}` } } : null,
@@ -425,6 +426,9 @@ function JobCard({
       ) : null}
       {expanded && playable ? (
         <View style={{ marginTop: 12, gap: 8 }}>
+          <Button title="Smart Edit" icon="scissors" variant="outline"
+            testID={`button-smart-edit-${job.id}`}
+            onPress={() => router.push({ pathname: "/smart-edit/[id]", params: { id: String(job.id) } })} />
           <JobVideoPlayer job={job} />
           <View>
             <Text style={styles.spendText} testID="text-video-credits-used">

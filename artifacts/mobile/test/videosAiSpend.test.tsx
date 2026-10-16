@@ -1,3 +1,4 @@
+vi.mock("expo-router", () => ({ router: { push: vi.fn() } }));
 /**
  * Regression guard for the mobile Videos screen (app/videos.tsx):
  * - list rendering + status badges for each job state

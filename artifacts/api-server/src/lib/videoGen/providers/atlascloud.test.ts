@@ -20,6 +20,7 @@ import {
   ATLASCLOUD_WAN_30_I2V_MODEL,
   ATLASCLOUD_WAN_30_REFERENCE_MODEL,
   ATLASCLOUD_WAN_30_PRIME_T2V_MODEL,
+  ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL,
   isAtlasReferenceModel,
   isAtlasWanReferenceModel,
   atlasCloudRequestBody,
@@ -188,6 +189,36 @@ describe("Atlas Cloud Seedance 2.5", () => {
     expect(body).not.toHaveProperty("image");
     expect(body).not.toHaveProperty("ratio");
     expect(body.prompt).toContain("@Image1 and @Image2");
+  });
+
+  it.each([
+    [ATLASCLOUD_WAN_30_REFERENCE_MODEL, 10, true],
+    [ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL, 10, true],
+    [ATLASCLOUD_SEEDANCE_25_REFERENCE_MODEL, 30, false],
+  ])("keeps every supported image for %s and rejects overflow", (model, maximum, urls) => {
+    const assetIds = Array.from({ length: maximum }, (_, i) =>
+      urls ? `https://storage.example.com/image-${i}.png` : `asset-fictional-${i}`,
+    );
+    const body = atlasCloudRequestBody({ ...input, model, assetIds });
+    expect(urls ? body.refers : body.reference_images).toHaveLength(maximum);
+    expect(() => atlasCloudRequestBody({
+      ...input, model, assetIds: [...assetIds, urls ? "https://storage.example.com/extra.png" : "asset-fictional-extra"],
+    })).toThrow(new RegExp(`at most ${maximum} image references`));
+  });
+
+  it("rejects too many references before metering or marking a paid submission", async () => {
+    const onProviderSubmitStarted = vi.fn();
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    await expect(generateWithAtlasCloud({
+      ...input,
+      model: ATLASCLOUD_WAN_30_PRIME_REFERENCE_MODEL,
+      assetIds: Array.from({ length: 11 }, (_, i) => `https://storage.example.com/image-${i}.png`),
+      onProviderSubmitStarted,
+    }, "test-key")).rejects.toThrow(/at most 10 image references/);
+    expect(meterMock).not.toHaveBeenCalled();
+    expect(onProviderSubmitStarted).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each(["asset-💥", " asset-2026-valid", "asset-2026 bad", "atlas-asset-2026"])(

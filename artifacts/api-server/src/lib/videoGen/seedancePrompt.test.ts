@@ -62,6 +62,28 @@ function scene() {
 }
 
 describe("Seedance 2.5 prompt assembly", () => {
+  it("explicitly forbids voices for visual-only native-audio scenes without forbidding music", () => {
+    const quietScene = scene();
+    quietScene.lines = [];
+    const prompt = seedanceScenePrompt({
+      scriptScene: quietScene,
+      sceneCast: cast(),
+      backdrop: null,
+      location: { mode: "none", imagePath: null, description: null },
+      platform: { aspectRatio: "16:9", safeArea: "Keep action inside the frame." },
+      locale: "en",
+      dialogueNumbers: new Map(),
+      segmentIndex: 0,
+      segmentCount: 1,
+      nativeAudio: true,
+    });
+    expect(prompt).toContain("No spoken audio: no dialogue, narration, voiceover");
+    expect(prompt).toContain("Use only instrumental music, ambience and sound effects");
+    expect(prompt).toContain("Do not read visual directions or on-screen lettering aloud.");
+    expect(prompt).not.toContain("[DIALOGUE]");
+    expect(prompt).not.toContain("No background music.");
+  });
+
   it("identifies the frozen model without changing other model behavior", () => {
     expect(
       isSeedance25Model({

@@ -16166,7 +16166,7 @@ export const generateVideoBodyDirectedVideoAssetsItemStartSecMin = 0;
 
 export const generateVideoBodyDirectedVideoAssetsItemEndSecMin = 0.1;
 
-export const generateVideoBodyDirectedVideoAssetsMax = 3;
+export const generateVideoBodyDirectedVideoAssetsMax = 30;
 
 export const generateVideoBodyDirectedVideoOverlaysItemTextMax = 160;
 
@@ -16188,8 +16188,6 @@ export const generateVideoBodyReferenceImagesItemSceneNumbersItemMax = 80;
 export const generateVideoBodyReferenceImagesItemSceneNumbersMax = 80;
 
 export const generateVideoBodyReferenceImagesMax = 6;
-
-export const generateVideoBodyPromptMax = 2000;
 
 export const generateVideoBodyDialogueMax = 12000;
 
@@ -16287,7 +16285,7 @@ export const GenerateVideoBody = zod.object({
   "presetVoiceId": zod.string().nullish().describe('Licensed voice id advertised by the selected preset; omit for its first voice.'),
   "presetLanguage": zod.string().nullish().describe('Language code supported by both the preset and selected voice (defaults to en).'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
-  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.'),
+  "prompt": zod.string().nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub. Text-to-video briefs have no application-level character limit. Other engines allow at most 2000 characters.'),
   "dialogue": zod.string().min(1).max(generateVideoBodyDialogueMax).nullish().describe('dialogue_lip_sync only; the exact single-speaker dialogue\/script synthesized with the selected Character Dialogue catalog voice.'),
   "characterDialogue": zod.union([zod.object({
   "scriptApproved": zod.boolean(),
@@ -17071,7 +17069,7 @@ export const createGuidedStoryDraftBodyUploadsItemTranscriptMax = 4000;
 
 export const createGuidedStoryDraftBodyUploadsItemVoiceForMax = 64;
 
-export const createGuidedStoryDraftBodyUploadsMax = 12;
+export const createGuidedStoryDraftBodyUploadsMax = 50;
 
 export const createGuidedStoryDraftBodyDurationSecondsMin = 15;
 export const createGuidedStoryDraftBodyDurationSecondsMax = 300;
@@ -17155,7 +17153,7 @@ export const createGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax =
 
 export const createGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const createGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
+export const createGuidedStoryDraftResponseSetupOneOneUploadsMax = 50;
 
 export const createGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const createGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
@@ -17179,7 +17177,7 @@ export const createGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const createGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const createGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const createGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const createGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -17196,7 +17194,7 @@ export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptS
 
 export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17357,7 +17355,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -17470,7 +17468,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(createGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -17665,7 +17663,7 @@ export const getGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax = 40
 
 export const getGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const getGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
+export const getGuidedStoryDraftResponseSetupOneOneUploadsMax = 50;
 
 export const getGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const getGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
@@ -17689,7 +17687,7 @@ export const getGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const getGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const getGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const getGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const getGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -17706,7 +17704,7 @@ export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScen
 
 export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -17867,7 +17865,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -17980,7 +17978,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(getGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -18176,7 +18174,7 @@ export const updateGuidedStoryDraftBodySetupUploadsItemTranscriptMax = 4000;
 
 export const updateGuidedStoryDraftBodySetupUploadsItemVoiceForMax = 64;
 
-export const updateGuidedStoryDraftBodySetupUploadsMax = 12;
+export const updateGuidedStoryDraftBodySetupUploadsMax = 50;
 
 export const updateGuidedStoryDraftBodySetupDurationSecondsMin = 15;
 export const updateGuidedStoryDraftBodySetupDurationSecondsMax = 300;
@@ -18200,7 +18198,7 @@ export const updateGuidedStoryDraftBodyScriptScenesItemStartMsMin = 0;
 
 export const updateGuidedStoryDraftBodyScriptScenesItemProductIdsMax = 2;
 
-export const updateGuidedStoryDraftBodyScriptScenesItemReferenceIdsMax = 3;
+export const updateGuidedStoryDraftBodyScriptScenesItemReferenceIdsMax = 50;
 
 export const updateGuidedStoryDraftBodyScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18289,7 +18287,7 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -18402,7 +18400,7 @@ export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax =
 
 export const updateGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const updateGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
+export const updateGuidedStoryDraftResponseSetupOneOneUploadsMax = 50;
 
 export const updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
@@ -18426,7 +18424,7 @@ export const updateGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const updateGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const updateGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -18443,7 +18441,7 @@ export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptS
 
 export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -18604,7 +18602,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -18717,7 +18715,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(updateGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -18919,7 +18917,7 @@ export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemTranscr
 
 export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsMax = 12;
+export const generateGuidedStoryDraftScriptResponseSetupOneOneUploadsMax = 50;
 
 export const generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin = 15;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax = 300;
@@ -18943,7 +18941,7 @@ export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -18960,7 +18958,7 @@ export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResul
 
 export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19121,7 +19119,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -19234,7 +19232,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -19446,7 +19444,7 @@ export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemTran
 
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsMax = 12;
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneUploadsMax = 50;
 
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMin = 15;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneDurationSecondsMax = 300;
@@ -19470,7 +19468,7 @@ export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemStartMs
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -19487,7 +19485,7 @@ export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationRe
 
 export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19648,7 +19646,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -19761,7 +19759,7 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(refreshGuidedStoryLineTranslationResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -19940,7 +19938,7 @@ export const generateGuidedStoryDraftSceneBodyScriptScenesItemStartMsMin = 0;
 
 export const generateGuidedStoryDraftSceneBodyScriptScenesItemProductIdsMax = 2;
 
-export const generateGuidedStoryDraftSceneBodyScriptScenesItemReferenceIdsMax = 3;
+export const generateGuidedStoryDraftSceneBodyScriptScenesItemReferenceIdsMax = 50;
 
 export const generateGuidedStoryDraftSceneBodyScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -19971,7 +19969,7 @@ export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneBodyScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -20000,7 +19998,7 @@ export const generateGuidedStoryDraftSceneResponseScriptScenesItemStartMsMin = 0
 
 export const generateGuidedStoryDraftSceneResponseScriptScenesItemProductIdsMax = 2;
 
-export const generateGuidedStoryDraftSceneResponseScriptScenesItemReferenceIdsMax = 3;
+export const generateGuidedStoryDraftSceneResponseScriptScenesItemReferenceIdsMax = 50;
 
 export const generateGuidedStoryDraftSceneResponseScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -20030,7 +20028,7 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(generateGuidedStoryDraftSceneResponseScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -20098,7 +20096,7 @@ export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemTranscri
 
 export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsMax = 12;
+export const approveGuidedStoryDraftScriptResponseSetupOneOneUploadsMax = 50;
 
 export const approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin = 15;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax = 300;
@@ -20122,7 +20120,7 @@ export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin 
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -20139,7 +20137,7 @@ export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResult
 
 export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -20300,7 +20298,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -20413,7 +20411,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryDraftScriptResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -20630,7 +20628,7 @@ export const castGuidedStoryDraftResponseSetupOneOneUploadsItemTranscriptMax = 4
 
 export const castGuidedStoryDraftResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const castGuidedStoryDraftResponseSetupOneOneUploadsMax = 12;
+export const castGuidedStoryDraftResponseSetupOneOneUploadsMax = 50;
 
 export const castGuidedStoryDraftResponseSetupOneOneDurationSecondsMin = 15;
 export const castGuidedStoryDraftResponseSetupOneOneDurationSecondsMax = 300;
@@ -20654,7 +20652,7 @@ export const castGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
 
 export const castGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const castGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const castGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const castGuidedStoryDraftResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -20671,7 +20669,7 @@ export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptSce
 
 export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -20832,7 +20830,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -20945,7 +20943,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(castGuidedStoryDraftResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -21149,7 +21147,7 @@ export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemTranscriptM
 
 export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsMax = 12;
+export const approveGuidedStoryCastRoleResponseSetupOneOneUploadsMax = 50;
 
 export const approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMin = 15;
 export const approveGuidedStoryCastRoleResponseSetupOneOneDurationSecondsMax = 300;
@@ -21173,7 +21171,7 @@ export const approveGuidedStoryCastRoleResponseScriptOneScenesItemStartMsMin = 0
 
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const approveGuidedStoryCastRoleResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const approveGuidedStoryCastRoleResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -21190,7 +21188,7 @@ export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScr
 
 export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21351,7 +21349,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -21464,7 +21462,7 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -21683,7 +21681,7 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItem
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsMax = 12;
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneUploadsMax = 50;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMin = 15;
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneDurationSecondsMax = 300;
@@ -21707,7 +21705,7 @@ export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemSta
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -21724,7 +21722,7 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerati
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -21885,7 +21883,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -21998,7 +21996,7 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(customizeGuidedStoryGeneratedCastRoleResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -22202,7 +22200,7 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploa
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsMax = 12;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneUploadsMax = 50;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMin = 15;
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneDurationSecondsMax = 300;
@@ -22226,7 +22224,7 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesI
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -22243,7 +22241,7 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGe
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -22404,7 +22402,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -22517,7 +22515,7 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -22813,7 +22811,7 @@ export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemTranscriptM
 
 export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsMax = 12;
+export const prepareGuidedStoryBackdropResponseSetupOneOneUploadsMax = 50;
 
 export const prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
 export const prepareGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax = 300;
@@ -22837,7 +22835,7 @@ export const prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const prepareGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const prepareGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -22854,7 +22852,7 @@ export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScr
 
 export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -23015,7 +23013,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -23128,7 +23126,7 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(prepareGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -23338,7 +23336,7 @@ export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemTranscriptM
 
 export const approveGuidedStoryBackdropResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const approveGuidedStoryBackdropResponseSetupOneOneUploadsMax = 12;
+export const approveGuidedStoryBackdropResponseSetupOneOneUploadsMax = 50;
 
 export const approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMin = 15;
 export const approveGuidedStoryBackdropResponseSetupOneOneDurationSecondsMax = 300;
@@ -23362,7 +23360,7 @@ export const approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0
 
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const approveGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const approveGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -23379,7 +23377,7 @@ export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScr
 
 export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -23540,7 +23538,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -23653,7 +23651,7 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(approveGuidedStoryBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -23856,7 +23854,7 @@ export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemTran
 
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsMax = 12;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneUploadsMax = 50;
 
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMin = 15;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneDurationSecondsMax = 300;
@@ -23880,7 +23878,7 @@ export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMs
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -23897,7 +23895,7 @@ export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationRe
 
 export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -24058,7 +24056,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -24171,7 +24169,7 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(inheritGuidedStoryDefaultBackdropResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -24374,7 +24372,7 @@ export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemTranscrip
 
 export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsMax = 12;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneUploadsMax = 50;
 
 export const finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin = 15;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax = 300;
@@ -24398,7 +24396,7 @@ export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin =
 
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -24415,7 +24413,7 @@ export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultS
 
 export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -24576,7 +24574,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -24689,7 +24687,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(finalizeGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -24892,7 +24890,7 @@ export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemTranscriptM
 
 export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsItemVoiceForMax = 64;
 
-export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsMax = 12;
+export const rejectGuidedStoryReferenceResponseSetupOneOneUploadsMax = 50;
 
 export const rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin = 15;
 export const rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax = 300;
@@ -24916,7 +24914,7 @@ export const rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0
 
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax = 2;
 
-export const rejectGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax = 3;
+export const rejectGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax = 50;
 
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemLinesItemStartMsMin = 0;
 
@@ -24933,7 +24931,7 @@ export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScr
 
 export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax = 2;
 
-export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 3;
+export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax = 50;
 
 export const rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemLinesItemStartMsMin = 0;
 
@@ -25094,7 +25092,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseScriptOneScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -25207,7 +25205,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "visualDirection": zod.string(),
   "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
   "productIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemProductIdsMax).optional().describe('Frozen draft product ids (setup.products.items[].id) shown in this scene.'),
-  "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene.'),
+  "referenceIds": zod.array(zod.string()).max(rejectGuidedStoryReferenceResponseSceneInsertionGenerationResultScriptScenesItemReferenceIdsMax).optional().describe('Story upload ids (setup.references.items[].id) used in this scene. Provider attachment limits are model-specific.'),
   "shot": zod.object({
   "type": zod.enum(['macro_closeup', 'hero_shot', 'in_hand', 'in_use', 'texture', 'product_only', 'character_with_product', 'story_wide']),
   "camera": zod.enum(['orbit', 'push_in', 'pull_out', 'slide', 'top_down', 'tilt_reveal', 'rack_focus', 'static']),
@@ -43558,140 +43556,6 @@ export const QuoteCreditsResponse = zod.object({
   "balanceAfter": zod.number(),
   "sufficient": zod.boolean()
 })
-
-
-/**
- * @summary Published Quick Create starters, in display order
- */
-export const ListQuickCreatePresetsResponseItem = zod.object({
-  "id": zod.number(),
-  "label": zod.string(),
-  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
-  "prompt": zod.string(),
-  "durationSec": zod.number(),
-  "aspect": zod.enum(['9:16', '1:1', '16:9']),
-  "photoHint": zod.string().nullable(),
-  "musicPrompt": zod.string().nullable(),
-  "published": zod.boolean(),
-  "sortOrder": zod.number()
-})
-export const ListQuickCreatePresetsResponse = zod.array(ListQuickCreatePresetsResponseItem)
-
-
-/**
- * @summary Every Quick Create starter, published or not (superadmin only)
- */
-export const AdminListQuickCreatePresetsResponseItem = zod.object({
-  "id": zod.number(),
-  "label": zod.string(),
-  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
-  "prompt": zod.string(),
-  "durationSec": zod.number(),
-  "aspect": zod.enum(['9:16', '1:1', '16:9']),
-  "photoHint": zod.string().nullable(),
-  "musicPrompt": zod.string().nullable(),
-  "published": zod.boolean(),
-  "sortOrder": zod.number()
-})
-export const AdminListQuickCreatePresetsResponse = zod.array(AdminListQuickCreatePresetsResponseItem)
-
-
-/**
- * @summary Add a Quick Create starter (superadmin only)
- */
-export const adminCreateQuickCreatePresetBodyLabelMax = 60;
-
-export const adminCreateQuickCreatePresetBodyPromptMax = 600;
-
-export const adminCreateQuickCreatePresetBodyPhotoHintMax = 80;
-
-export const adminCreateQuickCreatePresetBodyMusicPromptMax = 200;
-
-export const adminCreateQuickCreatePresetBodySortOrderMin = 0;
-export const adminCreateQuickCreatePresetBodySortOrderMax = 1000;
-
-
-
-export const AdminCreateQuickCreatePresetBody = zod.object({
-  "label": zod.string().min(1).max(adminCreateQuickCreatePresetBodyLabelMax),
-  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
-  "prompt": zod.string().min(1).max(adminCreateQuickCreatePresetBodyPromptMax),
-  "durationSec": zod.union([zod.literal(5),zod.literal(10),zod.literal(15),zod.literal(30)]),
-  "aspect": zod.enum(['9:16', '1:1', '16:9']),
-  "photoHint": zod.string().max(adminCreateQuickCreatePresetBodyPhotoHintMax).nullish(),
-  "musicPrompt": zod.string().max(adminCreateQuickCreatePresetBodyMusicPromptMax).nullish(),
-  "published": zod.boolean().optional(),
-  "sortOrder": zod.number().min(adminCreateQuickCreatePresetBodySortOrderMin).max(adminCreateQuickCreatePresetBodySortOrderMax).optional()
-})
-
-export const AdminCreateQuickCreatePresetResponse = zod.object({
-  "id": zod.number(),
-  "label": zod.string(),
-  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
-  "prompt": zod.string(),
-  "durationSec": zod.number(),
-  "aspect": zod.enum(['9:16', '1:1', '16:9']),
-  "photoHint": zod.string().nullable(),
-  "musicPrompt": zod.string().nullable(),
-  "published": zod.boolean(),
-  "sortOrder": zod.number()
-})
-
-
-/**
- * @summary Edit a Quick Create starter (superadmin only)
- */
-export const AdminUpdateQuickCreatePresetParams = zod.object({
-  "presetId": zod.coerce.number()
-})
-
-export const adminUpdateQuickCreatePresetBodyLabelMax = 60;
-
-export const adminUpdateQuickCreatePresetBodyPromptMax = 600;
-
-export const adminUpdateQuickCreatePresetBodyPhotoHintMax = 80;
-
-export const adminUpdateQuickCreatePresetBodyMusicPromptMax = 200;
-
-export const adminUpdateQuickCreatePresetBodySortOrderMin = 0;
-export const adminUpdateQuickCreatePresetBodySortOrderMax = 1000;
-
-
-
-export const AdminUpdateQuickCreatePresetBody = zod.object({
-  "label": zod.string().min(1).max(adminUpdateQuickCreatePresetBodyLabelMax),
-  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
-  "prompt": zod.string().min(1).max(adminUpdateQuickCreatePresetBodyPromptMax),
-  "durationSec": zod.union([zod.literal(5),zod.literal(10),zod.literal(15),zod.literal(30)]),
-  "aspect": zod.enum(['9:16', '1:1', '16:9']),
-  "photoHint": zod.string().max(adminUpdateQuickCreatePresetBodyPhotoHintMax).nullish(),
-  "musicPrompt": zod.string().max(adminUpdateQuickCreatePresetBodyMusicPromptMax).nullish(),
-  "published": zod.boolean().optional(),
-  "sortOrder": zod.number().min(adminUpdateQuickCreatePresetBodySortOrderMin).max(adminUpdateQuickCreatePresetBodySortOrderMax).optional()
-})
-
-export const AdminUpdateQuickCreatePresetResponse = zod.object({
-  "id": zod.number(),
-  "label": zod.string(),
-  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
-  "prompt": zod.string(),
-  "durationSec": zod.number(),
-  "aspect": zod.enum(['9:16', '1:1', '16:9']),
-  "photoHint": zod.string().nullable(),
-  "musicPrompt": zod.string().nullable(),
-  "published": zod.boolean(),
-  "sortOrder": zod.number()
-})
-
-
-/**
- * @summary Delete a Quick Create starter (superadmin only)
- */
-export const AdminDeleteQuickCreatePresetParams = zod.object({
-  "presetId": zod.coerce.number()
-})
-
-export const AdminDeleteQuickCreatePresetResponse = zod.void()
 
 
 /**
