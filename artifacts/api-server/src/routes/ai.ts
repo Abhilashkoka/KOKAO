@@ -1542,13 +1542,8 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   }
   let referenceImage = null;
   if (tryOn) {
-    if (!(await isFeatureEnabled("referenceImages"))) {
-      res.status(403).json({
-        error: "Reference images are currently disabled by the administrator.",
-        code: "feature_disabled",
-      });
-      return;
-    }
+    // Try-on is Create's own outfit flow, so it does not depend on the
+    // studio's "Reference images" switch.
     try {
       const outfit = await loadReferenceImage(tryOn.outfitImagePath, req.tenantId);
       const model = tryOn.modelImagePath

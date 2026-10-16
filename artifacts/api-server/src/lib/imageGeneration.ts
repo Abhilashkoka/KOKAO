@@ -210,7 +210,11 @@ export async function performImageGeneration(
   } = await generateImage(prompt, input.size, input.referenceImage ?? undefined, {
     selectionPolicy: input.selectionPolicy,
     meterContext: input.meterContext,
-    ...(input.requireReferenceInput ? { requireReferenceInput: true } : {}),
+    // An interactive look the user is waiting on may move past a pinned
+    // provider that cannot read the reference, instead of failing.
+    ...(input.requireReferenceInput
+      ? { requireReferenceInput: true, forceCapabilityFallback: true }
+      : {}),
   });
 
   // Plans with the watermark switch ON get a "Made with KOKAO.in" stamp,

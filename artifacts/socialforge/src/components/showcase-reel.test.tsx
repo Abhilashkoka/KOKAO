@@ -14,8 +14,8 @@ vi.mock("@workspace/api-client-react", async () => {
     useRequestUploadUrl: () => ({
       mutateAsync: async () => ({ uploadURL: "https://upload.test/x", objectPath: `/objects/uploads/${++uploads}` }),
     }),
-    useGenerateImage: () => ({ mutate: generateImage, isPending: false }),
-    useGenerateVideo: () => ({ mutate: generateVideo, isPending: false }),
+    useGenerateImage: () => ({ mutateAsync: generateImage, isPending: false }),
+    useGenerateVideo: () => ({ mutateAsync: generateVideo, isPending: false }),
   });
 });
 vi.mock("wouter", () => ({ useLocation: () => ["/create", navigate] }));
@@ -25,6 +25,7 @@ vi.mock("@/lib/beat", async (orig) => ({
 }));
 
 const { ShowcaseReel } = await import("./showcase-reel");
+const { __resetDraftStoreForTests } = await import("@/lib/create-draft");
 
 const png = (name: string) => new File(["x"], name, { type: "image/png" });
 
@@ -41,6 +42,9 @@ async function addTwoDressedLooks(first = 1) {
     target: { files: [png("saree1.png"), png("saree2.png")] },
   });
   await waitFor(() => expect(screen.getByTestId("reel-look-1")).toBeTruthy());
+  generateImage
+    .mockResolvedValueOnce({ imagePath: "/objects/generated/a", b64Json: "" })
+    .mockResolvedValueOnce({ imagePath: "/objects/generated/b", b64Json: "" });
   fireEvent.click(screen.getByTestId("reel-dress-all"));
   // Looks are dressed one after another so the first face carries over.
   await waitFor(() => expect(generateImage).toHaveBeenCalledTimes(1));
@@ -48,22 +52,22 @@ async function addTwoDressedLooks(first = 1) {
     outfitImagePath: `/objects/uploads/${first}`,
     modelImagePath: null,
   });
-  generateImage.mock.calls[0][1].onSuccess({ imagePath: "/objects/generated/a", b64Json: "" });
   await waitFor(() => expect(generateImage).toHaveBeenCalledTimes(2));
   expect(generateImage.mock.calls[1][0].data.tryOn).toEqual({
     outfitImagePath: `/objects/uploads/${first + 1}`,
     modelImagePath: "/objects/generated/a",
   });
-  generateImage.mock.calls[1][1].onSuccess({ imagePath: "/objects/generated/b", b64Json: "" });
   await waitFor(() => expect(screen.getByTestId("reel-dressed-1")).toBeTruthy());
 }
 
 describe("Showcase reel", () => {
   beforeEach(() => {
+    __resetDraftStoreForTests();
     uploads = 0;
     generateVideo.mockReset();
     generateImage.mockReset();
     navigate.mockReset();
+    generateVideo.mockResolvedValue({ id: 42 });
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:preview" }));
   });
@@ -95,8 +99,7 @@ describe("Showcase reel", () => {
       reviewStoryboard: false,
     });
     expect(data.prompt).toContain("No on-screen text");
-    generateVideo.mock.calls[0][1].onSuccess({ id: 42 });
-    expect(navigate).toHaveBeenCalledWith("/results?job=42");
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/results?job=42"));
   });
 
   it("makes a cheaper photo reel as a slideshow", async () => {
@@ -110,5 +113,22 @@ describe("Showcase reel", () => {
       sourceImagePaths: ["/objects/generated/a", "/objects/generated/b"],
       musicPath: null,
     });
+  });
+
+  it("keeps every look when you leave the page, even one still being dressed", async () => {
+    const first = renderReel();
+    fireEvent.change(screen.getByTestId("reel-outfit-input"), {
+      target: { files: [png("saree1.png"), png("saree2.png")] },
+    });
+    await waitFor(() => expect(screen.getByTestId("reel-look-1")).toBeTruthy());
+    let finish: (v: { imagePath: string; b64Json: string }) => void = () => {};
+    generateImage.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    fireEvent.click(screen.getByTestId("reel-dress-0"));
+    first.unmount();
+    finish({ imagePath: "/objects/generated/late", b64Json: "" });
+
+    renderReel();
+    await waitFor(() => expect(screen.getByTestId("reel-dressed-0")).toBeTruthy());
+    expect(screen.getByTestId("reel-look-1")).toBeTruthy();
   });
 });

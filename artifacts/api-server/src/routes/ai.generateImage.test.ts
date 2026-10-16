@@ -598,11 +598,12 @@ describe("image generation wallet billing", () => {
 });
 
 describe("try-on images", () => {
-  it("is refused when reference images are switched off", async () => {
+  it("works even when the studio's reference images switch is off", async () => {
     planState.images = 10;
+    flagState.referenceImages = false;
     const res = await postImage({ prompt: "sway", tryOn: { outfitImagePath: "/objects/a" } });
-    expect(res.status).toBe(403);
-    expect(imageGenerationCalls).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect(imageGenerationCalls).toHaveLength(1);
   });
 
   it("rejects a plain reference and a try-on in the same request", async () => {

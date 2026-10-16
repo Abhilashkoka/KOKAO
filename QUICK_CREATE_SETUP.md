@@ -70,6 +70,10 @@ Create → **Showcase reel**.
 4. Pick **Video** (one AI clip per look, joined on the beat) or **Photo** (a gentle photo slideshow; faster and cheaper).
 
 Requirements:
-- **Admin → Feature controls → Reference images** must be on, because dressing uses the try-on reference.
+- Dressing a model (single video or reel) no longer depends on the studio's **Reference images** switch.
 - No database step. New options are stored in the existing `options` JSON column.
 - Video reels cost one clip per look. Photo reels cost the same as a slideshow.
+
+## Drafts survive navigation
+
+Everything on Create is kept in a draft: photos, dressed looks, music, settings, and any request still running. You can leave Create and come back, or refresh the page, and nothing is lost. The draft belongs to one workspace. **Start over** clears it.

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,21 +25,20 @@ import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { trackProjectEvent } from "@/lib/analytics";
-import { analyzeMusicFile, lookTiming, type BeatInfo } from "@/lib/beat";
+import { analyzeMusicFile, lookTiming } from "@/lib/beat";
+import {
+  getDraft,
+  previewOf,
+  updateReel,
+  useCreateDraft,
+  type ReelLook,
+  type Uploaded,
+} from "@/lib/create-draft";
 import { cn } from "@/lib/utils";
 
 export const MAX_REEL_LOOKS = 6;
 const SHAPES = ["9:16", "1:1", "16:9"] as const;
 type Shape = (typeof SHAPES)[number];
-type Uploaded = { objectPath: string; previewUrl: string; name: string };
-type Look = {
-  id: string;
-  outfit: Uploaded;
-  dressed: Uploaded | null;
-  pending: boolean;
-};
-
-const storageUrl = (path: string) => `/api/storage${path}`;
 const sizeFor = (shape: Shape) =>
   shape === "16:9" ? "1536x1024" : shape === "1:1" ? "1024x1024" : "1024x1536";
 
@@ -91,22 +90,23 @@ export function ShowcaseReel({
   const generateImage = useGenerateImage();
   const generateVideo = useGenerateVideo();
 
-  const [model, setModel] = useState<Uploaded | null>(null);
-  const [looks, setLooks] = useState<Look[]>([]);
-  const [music, setMusic] = useState<
-    (Uploaded & { beat: BeatInfo | null }) | null
-  >(null);
+  // State lives in the Create draft store, so it survives leaving the page.
+  const { model, looks, music, style, bars, shape, motion, starting } =
+    useCreateDraft().reel;
   const [analyzing, setAnalyzing] = useState(false);
-  const [style, setStyle] = useState<"video" | "photo">("video");
-  const [bars, setBars] = useState(2);
-  const [shape, setShape] = useState<Shape>("9:16");
-  const [motion, setMotion] = useState(
-    "The model sways gently to the music with small graceful hand movements and a soft smile, static camera",
-  );
   const [uploading, setUploading] = useState(false);
   const outfitInput = useRef<HTMLInputElement>(null);
   const modelInput = useRef<HTMLInputElement>(null);
   const musicInput = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const setLooks = (change: (prev: ReelLook[]) => ReelLook[]) =>
+    updateReel((r) => ({ looks: change(r.looks) }));
 
   const upload = async (file: File): Promise<Uploaded> => {
     const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
@@ -133,7 +133,7 @@ export function ShowcaseReel({
 
   const addOutfits = async (files: FileList | null) => {
     if (!files?.length) return;
-    const room = MAX_REEL_LOOKS - looks.length;
+    const room = MAX_REEL_LOOKS - getDraft().reel.looks.length;
     const picked = Array.from(files)
       .filter((f) => f.type.startsWith("image/"))
       .slice(0, room);
@@ -150,7 +150,7 @@ export function ShowcaseReel({
         setLooks((prev) => [
           ...prev,
           {
-            id: `${Date.now()}-${prev.length}`,
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             outfit,
             dressed: null,
             pending: false,
@@ -169,7 +169,8 @@ export function ShowcaseReel({
     if (!file) return;
     setUploading(true);
     try {
-      setModel(await upload(file));
+      const uploaded = await upload(file);
+      updateReel({ model: uploaded });
       // A new face means every look must be dressed again to match it.
       setLooks((prev) => prev.map((look) => ({ ...look, dressed: null })));
     } catch (error) {
@@ -192,7 +193,7 @@ export function ShowcaseReel({
         upload(file),
         analyzeMusicFile(file),
       ]);
-      setMusic({ ...uploaded, beat });
+      updateReel({ music: { ...uploaded, beat } });
       if (!beat) {
         toast({
           title: "Couldn't find a clear beat",
@@ -209,67 +210,62 @@ export function ShowcaseReel({
 
   /** The face every look must keep: the uploaded model, else the first dressed look. */
   const faceFor = (lookId: string): string | null => {
-    if (model) return model.objectPath;
-    const first = looks.find((look) => look.dressed);
+    const reel = getDraft().reel;
+    if (reel.model) return reel.model.objectPath;
+    const first = reel.looks.find((look) => look.dressed);
     return first && first.id !== lookId ? first.dressed!.objectPath : null;
   };
 
-  const dress = (look: Look, face: string | null = faceFor(look.id)): Promise<string | null> =>
-    new Promise<string | null>((resolve) => {
+  const dress = async (
+    look: ReelLook,
+    face: string | null = faceFor(look.id),
+  ): Promise<string | null> => {
+    setLooks((prev) =>
+      prev.map((l) => (l.id === look.id ? { ...l, pending: true } : l)),
+    );
+    try {
+      const { motion: scene, shape: size } = getDraft().reel;
+      const image = await generateImage.mutateAsync({
+        data: {
+          prompt: scene,
+          size: sizeFor(size),
+          tryOn: { outfitImagePath: look.outfit.objectPath, modelImagePath: face },
+        },
+      });
       setLooks((prev) =>
-        prev.map((l) => (l.id === look.id ? { ...l, pending: true } : l)),
+        prev.map((l) =>
+          l.id === look.id
+            ? {
+                ...l,
+                pending: false,
+                dressed: { objectPath: image.imagePath, name: l.outfit.name },
+              }
+            : l,
+        ),
       );
-      generateImage.mutate(
-        {
-          data: {
-            prompt: motion,
-            size: sizeFor(shape),
-            tryOn: {
-              outfitImagePath: look.outfit.objectPath,
-              modelImagePath: face,
-            },
-          },
-        },
-        {
-          onSuccess: (image) => {
-            refreshCreditBalanceSafely(queryClient);
-            setLooks((prev) =>
-              prev.map((l) =>
-                l.id === look.id
-                  ? {
-                      ...l,
-                      pending: false,
-                      dressed: {
-                        objectPath: image.imagePath,
-                        previewUrl: storageUrl(image.imagePath),
-                        name: l.outfit.name,
-                      },
-                    }
-                  : l,
-              ),
-            );
-            resolve(image.imagePath);
-          },
-          onError: (error) => {
-            refreshCreditBalanceSafely(queryClient);
-            setLooks((prev) =>
-              prev.map((l) =>
-                l.id === look.id ? { ...l, pending: false } : l,
-              ),
-            );
-            fail("Could not dress the model")(error);
-            resolve(null);
-          },
-        },
+      return image.imagePath;
+    } catch (error) {
+      setLooks((prev) =>
+        prev.map((l) => (l.id === look.id ? { ...l, pending: false } : l)),
       );
-    });
+      fail("Could not dress the model")(error);
+      return null;
+    } finally {
+      refreshCreditBalanceSafely(queryClient);
+    }
+  };
 
   /** Dress the remaining looks one by one, so the first sets the face for the rest. */
   const dressAll = async () => {
+    const reel = getDraft().reel;
     let face: string | null =
-      model?.objectPath ?? looks.find((look) => look.dressed)?.dressed?.objectPath ?? null;
-    for (const look of looks) {
-      if (look.dressed) continue;
+      reel.model?.objectPath ??
+      reel.looks.find((look) => look.dressed)?.dressed?.objectPath ??
+      null;
+    for (const look of reel.looks) {
+      if (look.dressed || look.pending) continue;
+      // Skip looks removed while earlier ones were being dressed.
+      if (!getDraft().reel.looks.some((l) => l.id === look.id)) continue;
       const result = await dress(look, face);
       if (!face && result) face = result;
     }
@@ -294,7 +290,7 @@ export function ShowcaseReel({
   });
 
   const onGenerate = () => {
-    if (!ready || disabled || generateVideo.isPending) return;
+    if (!ready || disabled || starting) return;
     const photos = looks.map((look) => look.dressed!.objectPath);
     const beatSec = music?.beat?.barSec ?? null;
     const musicStartSec = music?.beat ? music.beat.firstBeatSec : null;
@@ -321,25 +317,20 @@ export function ShowcaseReel({
             engine: "slideshow" as const,
             slideDurationSec: timing.onScreenSec,
           };
-    generateVideo.mutate(
-      { data },
-      {
-        onSuccess: (job) => {
-          trackProjectEvent("video_generation_started", {
-            engine: data.engine,
-          });
-          void queryClient.invalidateQueries({
-            queryKey: getListVideoJobsQueryKey(),
-          });
-          refreshCreditBalanceSafely(queryClient);
-          navigate(`/results?job=${job.id}`);
-        },
-        onError: (error) => {
-          refreshCreditBalanceSafely(queryClient);
-          fail("Could not start the reel")(error);
-        },
-      },
-    );
+    updateReel({ starting: true });
+    generateVideo
+      .mutateAsync({ data })
+      .then((job) => {
+        trackProjectEvent("video_generation_started", { engine: data.engine });
+        void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+        if (mounted.current) navigate(`/results?job=${job.id}`);
+        else toast({ title: "Your reel has started", description: "Find it in Results." });
+      })
+      .catch(fail("Could not start the reel"))
+      .finally(() => {
+        updateReel({ starting: false });
+        refreshCreditBalanceSafely(queryClient);
+      });
   };
 
   return (
@@ -367,7 +358,7 @@ export function ShowcaseReel({
           <div className="flex items-center gap-3">
             {model ? (
               <img
-                src={model.previewUrl}
+                src={previewOf(model)}
                 alt="Model"
                 className="h-20 w-16 rounded-xl border object-cover"
               />
@@ -395,7 +386,7 @@ export function ShowcaseReel({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setModel(null)}
+                    onClick={() => updateReel({ model: null })}
                   >
                     Remove
                   </Button>
@@ -431,13 +422,13 @@ export function ShowcaseReel({
               >
                 <div className="grid grid-cols-2 gap-1">
                   <img
-                    src={look.outfit.previewUrl}
+                    src={previewOf(look.outfit)}
                     alt={`Outfit ${index + 1}`}
                     className="aspect-[3/4] w-full rounded-lg object-cover"
                   />
                   {look.dressed ? (
                     <img
-                      src={look.dressed.previewUrl}
+                      src={previewOf(look.dressed)}
                       alt={`Model in outfit ${index + 1}`}
                       className="aspect-[3/4] w-full rounded-lg object-cover"
                       data-testid={`reel-dressed-${index}`}
@@ -558,7 +549,7 @@ export function ShowcaseReel({
             id="reel-motion"
             rows={2}
             value={motion}
-            onChange={(e) => setMotion(e.target.value)}
+            onChange={(e) => updateReel({ motion: e.target.value })}
             className="rounded-2xl"
             data-testid="reel-motion"
           />
@@ -572,14 +563,14 @@ export function ShowcaseReel({
             <div className="flex flex-wrap gap-2">
               <Chip
                 active={style === "video"}
-                onClick={() => setStyle("video")}
+                onClick={() => updateReel({ style: "video" })}
                 testId="reel-style-video"
               >
                 Video
               </Chip>
               <Chip
                 active={style === "photo"}
-                onClick={() => setStyle("photo")}
+                onClick={() => updateReel({ style: "photo" })}
                 testId="reel-style-photo"
               >
                 Photo
@@ -596,7 +587,7 @@ export function ShowcaseReel({
                   <Chip
                     key={b}
                     active={bars === b}
-                    onClick={() => setBars(b)}
+                    onClick={() => updateReel({ bars: b })}
                     testId={`reel-bars-${b}`}
                   >
                     {`${b} bar${b > 1 ? "s" : ""}`}
@@ -615,7 +606,7 @@ export function ShowcaseReel({
             </span>
             <div className="flex flex-wrap gap-2">
               {SHAPES.map((s) => (
-                <Chip key={s} active={shape === s} onClick={() => setShape(s)}>
+                <Chip key={s} active={shape === s} onClick={() => updateReel({ shape: s })}>
                   {s}
                 </Chip>
               ))}
@@ -647,14 +638,14 @@ export function ShowcaseReel({
           disabled={
             !ready ||
             disabled ||
-            generateVideo.isPending ||
+            starting ||
             (creditFunded && style === "video" && quote
               ? !quote.sufficient
               : false)
           }
           data-testid="reel-generate"
         >
-          {generateVideo.isPending ? (
+          {starting ? (
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           ) : (
             <Sparkles className="mr-2 h-5 w-5" />
