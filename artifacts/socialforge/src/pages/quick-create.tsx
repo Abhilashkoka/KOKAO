@@ -8,6 +8,8 @@ import {
   useGenerateVideo,
   useGetMe,
   useListQuickCreatePresets,
+  useListVideoModels,
+  getListVideoModelsQueryKey,
   useQuoteCredits,
   useRequestUploadUrl,
 } from "@workspace/api-client-react";
@@ -34,6 +36,8 @@ import {
   QUICK_CREATE_VERTICALS,
   buildQuickCreatePrompt,
   quickCreateEngine,
+  quickCreateDefaultModel,
+  type QuickCreateModelCatalog,
   type QuickCreateLanguage,
   type QuickCreatePreset,
   type QuickCreateVertical,
@@ -178,7 +182,18 @@ export function QuickCreatePage() {
     }
   };
 
-  const prompt = buildQuickCreatePrompt(description, language);
+  // Sound comes from the video model itself (e.g. Wan with native audio), never
+  // from a separate music service that may not be configured.
+  const { data: videoModels } = useListVideoModels({
+    query: { queryKey: getListVideoModelsQueryKey(), staleTime: 5 * 60_000 },
+  });
+  const defaultModel = quickCreateDefaultModel(
+    videoModels as QuickCreateModelCatalog | undefined,
+    photo ? "image" : "text",
+  );
+  const nativeAudio = Boolean(defaultModel?.canGenerateAudio);
+  const wantsSound = nativeAudio && (musicPrompt.trim().length > 0 || language !== "None");
+  const prompt = buildQuickCreatePrompt(description, language, nativeAudio ? musicPrompt : "");
   const canGenerate =
     !meLoading && !isFreePlan && !uploading && prompt.length > 0 && !generateVideo.isPending;
 
@@ -194,7 +209,7 @@ export function QuickCreatePage() {
           aspectRatio: aspect,
           durationSec,
           shotCount: 1,
-          musicPrompt: musicPrompt.trim() || null,
+          generateAudio: wantsSound ? true : null,
           visualsSource: "stock",
         },
       },
@@ -421,9 +436,19 @@ export function QuickCreatePage() {
                 id="qc-music"
                 value={musicPrompt}
                 onChange={(e) => setMusicPrompt(e.target.value)}
-                placeholder="e.g. soft sitar, festive"
+                placeholder={nativeAudio ? "e.g. soft sitar, festive" : "Not available for this video model"}
+                disabled={!nativeAudio}
                 data-testid="qc-music"
               />
+              {!nativeAudio && (
+                <p className="text-xs text-muted-foreground" data-testid="qc-music-note">
+                  This video model makes silent clips. Add a music track in the{" "}
+                  <Link href="/studio?tab=video" className="font-semibold text-primary hover:underline">
+                    advanced studio
+                  </Link>
+                  .
+                </p>
+              )}
             </div>
           </div>
         </section>
