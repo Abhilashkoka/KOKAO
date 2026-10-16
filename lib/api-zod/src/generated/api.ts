@@ -43561,6 +43561,140 @@ export const QuoteCreditsResponse = zod.object({
 
 
 /**
+ * @summary Published Quick Create starters, in display order
+ */
+export const ListQuickCreatePresetsResponseItem = zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
+  "prompt": zod.string(),
+  "durationSec": zod.number(),
+  "aspect": zod.enum(['9:16', '1:1', '16:9']),
+  "photoHint": zod.string().nullable(),
+  "musicPrompt": zod.string().nullable(),
+  "published": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const ListQuickCreatePresetsResponse = zod.array(ListQuickCreatePresetsResponseItem)
+
+
+/**
+ * @summary Every Quick Create starter, published or not (superadmin only)
+ */
+export const AdminListQuickCreatePresetsResponseItem = zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
+  "prompt": zod.string(),
+  "durationSec": zod.number(),
+  "aspect": zod.enum(['9:16', '1:1', '16:9']),
+  "photoHint": zod.string().nullable(),
+  "musicPrompt": zod.string().nullable(),
+  "published": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const AdminListQuickCreatePresetsResponse = zod.array(AdminListQuickCreatePresetsResponseItem)
+
+
+/**
+ * @summary Add a Quick Create starter (superadmin only)
+ */
+export const adminCreateQuickCreatePresetBodyLabelMax = 60;
+
+export const adminCreateQuickCreatePresetBodyPromptMax = 600;
+
+export const adminCreateQuickCreatePresetBodyPhotoHintMax = 80;
+
+export const adminCreateQuickCreatePresetBodyMusicPromptMax = 200;
+
+export const adminCreateQuickCreatePresetBodySortOrderMin = 0;
+export const adminCreateQuickCreatePresetBodySortOrderMax = 1000;
+
+
+
+export const AdminCreateQuickCreatePresetBody = zod.object({
+  "label": zod.string().min(1).max(adminCreateQuickCreatePresetBodyLabelMax),
+  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
+  "prompt": zod.string().min(1).max(adminCreateQuickCreatePresetBodyPromptMax),
+  "durationSec": zod.union([zod.literal(5),zod.literal(10),zod.literal(15),zod.literal(30)]),
+  "aspect": zod.enum(['9:16', '1:1', '16:9']),
+  "photoHint": zod.string().max(adminCreateQuickCreatePresetBodyPhotoHintMax).nullish(),
+  "musicPrompt": zod.string().max(adminCreateQuickCreatePresetBodyMusicPromptMax).nullish(),
+  "published": zod.boolean().optional(),
+  "sortOrder": zod.number().min(adminCreateQuickCreatePresetBodySortOrderMin).max(adminCreateQuickCreatePresetBodySortOrderMax).optional()
+})
+
+export const AdminCreateQuickCreatePresetResponse = zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
+  "prompt": zod.string(),
+  "durationSec": zod.number(),
+  "aspect": zod.enum(['9:16', '1:1', '16:9']),
+  "photoHint": zod.string().nullable(),
+  "musicPrompt": zod.string().nullable(),
+  "published": zod.boolean(),
+  "sortOrder": zod.number()
+})
+
+
+/**
+ * @summary Edit a Quick Create starter (superadmin only)
+ */
+export const AdminUpdateQuickCreatePresetParams = zod.object({
+  "presetId": zod.coerce.number()
+})
+
+export const adminUpdateQuickCreatePresetBodyLabelMax = 60;
+
+export const adminUpdateQuickCreatePresetBodyPromptMax = 600;
+
+export const adminUpdateQuickCreatePresetBodyPhotoHintMax = 80;
+
+export const adminUpdateQuickCreatePresetBodyMusicPromptMax = 200;
+
+export const adminUpdateQuickCreatePresetBodySortOrderMin = 0;
+export const adminUpdateQuickCreatePresetBodySortOrderMax = 1000;
+
+
+
+export const AdminUpdateQuickCreatePresetBody = zod.object({
+  "label": zod.string().min(1).max(adminUpdateQuickCreatePresetBodyLabelMax),
+  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
+  "prompt": zod.string().min(1).max(adminUpdateQuickCreatePresetBodyPromptMax),
+  "durationSec": zod.union([zod.literal(5),zod.literal(10),zod.literal(15),zod.literal(30)]),
+  "aspect": zod.enum(['9:16', '1:1', '16:9']),
+  "photoHint": zod.string().max(adminUpdateQuickCreatePresetBodyPhotoHintMax).nullish(),
+  "musicPrompt": zod.string().max(adminUpdateQuickCreatePresetBodyMusicPromptMax).nullish(),
+  "published": zod.boolean().optional(),
+  "sortOrder": zod.number().min(adminUpdateQuickCreatePresetBodySortOrderMin).max(adminUpdateQuickCreatePresetBodySortOrderMax).optional()
+})
+
+export const AdminUpdateQuickCreatePresetResponse = zod.object({
+  "id": zod.number(),
+  "label": zod.string(),
+  "vertical": zod.enum(['fashion', 'product', 'service', 'doctor', 'ca']),
+  "prompt": zod.string(),
+  "durationSec": zod.number(),
+  "aspect": zod.enum(['9:16', '1:1', '16:9']),
+  "photoHint": zod.string().nullable(),
+  "musicPrompt": zod.string().nullable(),
+  "published": zod.boolean(),
+  "sortOrder": zod.number()
+})
+
+
+/**
+ * @summary Delete a Quick Create starter (superadmin only)
+ */
+export const AdminDeleteQuickCreatePresetParams = zod.object({
+  "presetId": zod.coerce.number()
+})
+
+export const AdminDeleteQuickCreatePresetResponse = zod.void()
+
+
+/**
  * @summary Get the credit rate card, rupee conversion and meter mode (superadmin only)
  */
 export const adminGetCreditRatesResponseCreditPricePaiseMax = 100000000;

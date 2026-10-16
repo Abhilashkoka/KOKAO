@@ -13487,6 +13487,136 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /quick-create/presets:
+    get:
+      operationId: listQuickCreatePresets
+      tags: [ai]
+      summary: Published Quick Create starters, in display order
+      responses:
+        "200":
+          description: Starters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuickCreatePreset"
+  /admin/quick-create-presets:
+    get:
+      operationId: adminListQuickCreatePresets
+      tags: [admin]
+      summary: Every Quick Create starter, published or not (superadmin only)
+      responses:
+        "200":
+          description: Starters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuickCreatePreset"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminCreateQuickCreatePreset
+      tags: [admin]
+      summary: Add a Quick Create starter (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuickCreatePresetInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickCreatePreset"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/quick-create-presets/{presetId}:
+    parameters:
+      - name: presetId
+        in: path
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: adminUpdateQuickCreatePreset
+      tags: [admin]
+      summary: Edit a Quick Create starter (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuickCreatePresetInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuickCreatePreset"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminDeleteQuickCreatePreset
+      tags: [admin]
+      summary: Delete a Quick Create starter (superadmin only)
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: Invalid preset ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/credit-rates:
     get:
       operationId: adminGetCreditRates
@@ -16649,6 +16779,66 @@ components:
           type: string
           minLength: 1
           maxLength: 1000
+    QuickCreatePresetInput:
+      type: object
+      additionalProperties: false
+      required: [label, vertical, prompt, durationSec, aspect]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 60
+        vertical:
+          type: string
+          enum: [fashion, product, service, doctor, ca]
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 600
+        durationSec:
+          type: integer
+          enum: [5, 10, 15, 30]
+        aspect:
+          type: string
+          enum: ["9:16", "1:1", "16:9"]
+        photoHint:
+          type: ["string", "null"]
+          maxLength: 80
+        musicPrompt:
+          type: ["string", "null"]
+          maxLength: 200
+        published:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 1000
+    QuickCreatePreset:
+      type: object
+      required: [id, label, vertical, prompt, durationSec, aspect, photoHint, musicPrompt, published, sortOrder]
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+        vertical:
+          type: string
+          enum: [fashion, product, service, doctor, ca]
+        prompt:
+          type: string
+        durationSec:
+          type: integer
+        aspect:
+          type: string
+          enum: ["9:16", "1:1", "16:9"]
+        photoHint:
+          type: ["string", "null"]
+        musicPrompt:
+          type: ["string", "null"]
+        published:
+          type: boolean
+        sortOrder:
+          type: integer
     CreditQuoteLine:
       type: object
       required: [rateKey, quantity, credits]

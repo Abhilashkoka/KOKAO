@@ -407,6 +407,8 @@ import type {
   PushTokenInput,
   PushTokenResult,
   PushTokenUnregisterInput,
+  QuickCreatePreset,
+  QuickCreatePresetInput,
   QuoteCreditsParams,
   RazorpayAppCredentialInput,
   RazorpayAppCredentialStatus,
@@ -36491,6 +36493,371 @@ export function useQuoteCredits<TData = Awaited<ReturnType<typeof quoteCredits>>
 
 
 
+
+export const getListQuickCreatePresetsUrl = () => {
+
+
+
+
+  return `/api/quick-create/presets`
+}
+
+/**
+ * @summary Published Quick Create starters, in display order
+ */
+export const listQuickCreatePresets = async ( options?: RequestInit): Promise<QuickCreatePreset[]> => {
+
+  return customFetch<QuickCreatePreset[]>(getListQuickCreatePresetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListQuickCreatePresetsQueryKey = () => {
+    return [
+    `/api/quick-create/presets`
+    ] as const;
+    }
+
+
+export const getListQuickCreatePresetsQueryOptions = <TData = Awaited<ReturnType<typeof listQuickCreatePresets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listQuickCreatePresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListQuickCreatePresetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listQuickCreatePresets>>> = ({ signal }) => listQuickCreatePresets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listQuickCreatePresets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListQuickCreatePresetsQueryResult = NonNullable<Awaited<ReturnType<typeof listQuickCreatePresets>>>
+export type ListQuickCreatePresetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Published Quick Create starters, in display order
+ */
+
+export function useListQuickCreatePresets<TData = Awaited<ReturnType<typeof listQuickCreatePresets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listQuickCreatePresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListQuickCreatePresetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminListQuickCreatePresetsUrl = () => {
+
+
+
+
+  return `/api/admin/quick-create-presets`
+}
+
+/**
+ * @summary Every Quick Create starter, published or not (superadmin only)
+ */
+export const adminListQuickCreatePresets = async ( options?: RequestInit): Promise<QuickCreatePreset[]> => {
+
+  return customFetch<QuickCreatePreset[]>(getAdminListQuickCreatePresetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListQuickCreatePresetsQueryKey = () => {
+    return [
+    `/api/admin/quick-create-presets`
+    ] as const;
+    }
+
+
+export const getAdminListQuickCreatePresetsQueryOptions = <TData = Awaited<ReturnType<typeof adminListQuickCreatePresets>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListQuickCreatePresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListQuickCreatePresetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListQuickCreatePresets>>> = ({ signal }) => adminListQuickCreatePresets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListQuickCreatePresets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListQuickCreatePresetsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListQuickCreatePresets>>>
+export type AdminListQuickCreatePresetsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Every Quick Create starter, published or not (superadmin only)
+ */
+
+export function useAdminListQuickCreatePresets<TData = Awaited<ReturnType<typeof adminListQuickCreatePresets>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListQuickCreatePresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListQuickCreatePresetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminCreateQuickCreatePresetUrl = () => {
+
+
+
+
+  return `/api/admin/quick-create-presets`
+}
+
+/**
+ * @summary Add a Quick Create starter (superadmin only)
+ */
+export const adminCreateQuickCreatePreset = async (quickCreatePresetInput: QuickCreatePresetInput, options?: RequestInit): Promise<QuickCreatePreset> => {
+
+  return customFetch<QuickCreatePreset>(getAdminCreateQuickCreatePresetUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(quickCreatePresetInput)
+  }
+);}
+
+
+
+
+export const getAdminCreateQuickCreatePresetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreateQuickCreatePreset>>, TError,{data: BodyType<QuickCreatePresetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminCreateQuickCreatePreset>>, TError,{data: BodyType<QuickCreatePresetInput>}, TContext> => {
+
+const mutationKey = ['adminCreateQuickCreatePreset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminCreateQuickCreatePreset>>, {data: BodyType<QuickCreatePresetInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminCreateQuickCreatePreset(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminCreateQuickCreatePresetMutationResult = NonNullable<Awaited<ReturnType<typeof adminCreateQuickCreatePreset>>>
+    export type AdminCreateQuickCreatePresetMutationBody = BodyType<QuickCreatePresetInput>
+    export type AdminCreateQuickCreatePresetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add a Quick Create starter (superadmin only)
+ */
+export const useAdminCreateQuickCreatePreset = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreateQuickCreatePreset>>, TError,{data: BodyType<QuickCreatePresetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminCreateQuickCreatePreset>>,
+        TError,
+        {data: BodyType<QuickCreatePresetInput>},
+        TContext
+      > => {
+      return useMutation(getAdminCreateQuickCreatePresetMutationOptions(options));
+    }
+
+export const getAdminUpdateQuickCreatePresetUrl = (presetId: number,) => {
+
+
+
+
+  return `/api/admin/quick-create-presets/${presetId}`
+}
+
+/**
+ * @summary Edit a Quick Create starter (superadmin only)
+ */
+export const adminUpdateQuickCreatePreset = async (presetId: number,
+    quickCreatePresetInput: QuickCreatePresetInput, options?: RequestInit): Promise<QuickCreatePreset> => {
+
+  return customFetch<QuickCreatePreset>(getAdminUpdateQuickCreatePresetUrl(presetId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(quickCreatePresetInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateQuickCreatePresetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateQuickCreatePreset>>, TError,{presetId: number;data: BodyType<QuickCreatePresetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateQuickCreatePreset>>, TError,{presetId: number;data: BodyType<QuickCreatePresetInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateQuickCreatePreset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateQuickCreatePreset>>, {presetId: number;data: BodyType<QuickCreatePresetInput>}> = (props) => {
+          const {presetId,data} = props ?? {};
+
+          return  adminUpdateQuickCreatePreset(presetId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateQuickCreatePresetMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateQuickCreatePreset>>>
+    export type AdminUpdateQuickCreatePresetMutationBody = BodyType<QuickCreatePresetInput>
+    export type AdminUpdateQuickCreatePresetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Edit a Quick Create starter (superadmin only)
+ */
+export const useAdminUpdateQuickCreatePreset = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateQuickCreatePreset>>, TError,{presetId: number;data: BodyType<QuickCreatePresetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateQuickCreatePreset>>,
+        TError,
+        {presetId: number;data: BodyType<QuickCreatePresetInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateQuickCreatePresetMutationOptions(options));
+    }
+
+export const getAdminDeleteQuickCreatePresetUrl = (presetId: number,) => {
+
+
+
+
+  return `/api/admin/quick-create-presets/${presetId}`
+}
+
+/**
+ * @summary Delete a Quick Create starter (superadmin only)
+ */
+export const adminDeleteQuickCreatePreset = async (presetId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getAdminDeleteQuickCreatePresetUrl(presetId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminDeleteQuickCreatePresetMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteQuickCreatePreset>>, TError,{presetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDeleteQuickCreatePreset>>, TError,{presetId: number}, TContext> => {
+
+const mutationKey = ['adminDeleteQuickCreatePreset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteQuickCreatePreset>>, {presetId: number}> = (props) => {
+          const {presetId} = props ?? {};
+
+          return  adminDeleteQuickCreatePreset(presetId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDeleteQuickCreatePresetMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteQuickCreatePreset>>>
+
+    export type AdminDeleteQuickCreatePresetMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a Quick Create starter (superadmin only)
+ */
+export const useAdminDeleteQuickCreatePreset = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteQuickCreatePreset>>, TError,{presetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminDeleteQuickCreatePreset>>,
+        TError,
+        {presetId: number},
+        TContext
+      > => {
+      return useMutation(getAdminDeleteQuickCreatePresetMutationOptions(options));
+    }
 
 export const getAdminGetCreditRatesUrl = () => {
 
