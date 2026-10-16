@@ -3,6 +3,7 @@ import {
   QUICK_CREATE_PRESETS,
   QUICK_CREATE_VERTICALS,
   buildQuickCreatePrompt,
+  buildTryOnPrompt,
   quickCreateDefaultModel,
   quickCreateEngine,
 } from "./quick-create-presets";
@@ -47,5 +48,12 @@ describe("quick create presets", () => {
     expect(quickCreateDefaultModel(catalog, "image")?.id).toBe("wan-b");
     expect(quickCreateDefaultModel(catalog, "text")?.canGenerateAudio).toBe(false);
     expect(quickCreateDefaultModel(undefined, "text")).toBeNull();
+  });
+
+  it("builds a try-on prompt that ignores the reference's text and mannequin", () => {
+    const prompt = buildTryOnPrompt("model sways gently");
+    expect(prompt).toContain("exactly the outfit");
+    expect(prompt).toContain("Scene idea: model sways gently.");
+    expect(prompt).toContain("Do not copy any text, watermark, mannequin");
   });
 });

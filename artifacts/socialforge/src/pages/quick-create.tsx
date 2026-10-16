@@ -5,6 +5,7 @@ import {
   getListVideoJobsQueryKey,
   getQuoteCreditsQueryKey,
   getListQuickCreatePresetsQueryKey,
+  useGenerateImage,
   useGenerateVideo,
   useGetMe,
   useListQuickCreatePresets,
@@ -36,6 +37,8 @@ import {
   QUICK_CREATE_VERTICALS,
   buildQuickCreatePrompt,
   quickCreateEngine,
+  buildTryOnPrompt,
+  QUICK_CREATE_NO_TEXT,
   quickCreateDefaultModel,
   type QuickCreateModelCatalog,
   type QuickCreateLanguage,
@@ -90,6 +93,11 @@ export function QuickCreatePage() {
   const [preset, setPreset] = useState<QuickCreatePreset | null>(null);
   const [description, setDescription] = useState("");
   const [photo, setPhoto] = useState<Photo | null>(null);
+  // "model": the photo is an outfit/product to put on a model first.
+  // "as_is": animate the photo itself (it already shows the person/scene).
+  const [photoRole, setPhotoRole] = useState<"model" | "as_is">("model");
+  const [tryOn, setTryOn] = useState<{ objectPath: string; previewUrl: string } | null>(null);
+  const generateImage = useGenerateImage();
   const [uploading, setUploading] = useState(false);
   const [durationSec, setDurationSec] = useState<number>(10);
   const [aspect, setAspect] = useState<(typeof SHAPES)[number]>("9:16");
@@ -99,6 +107,7 @@ export function QuickCreatePage() {
 
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
+  const storageUrl = (path: string) => `/api/storage${path}`;
 
   const quoteParams = { action: "video", durationSec, sceneCount: 1 };
   const { data: quote } = useQuoteCredits(quoteParams, {
@@ -170,6 +179,7 @@ export function QuickCreatePage() {
       });
       if (!put.ok) throw new Error(`Upload failed (${put.status})`);
       setPhoto({ objectPath, previewUrl: URL.createObjectURL(file), name: file.name });
+      setTryOn(null);
     } catch (error) {
       toast({
         title: "Could not upload the photo",
@@ -193,19 +203,55 @@ export function QuickCreatePage() {
   );
   const nativeAudio = Boolean(defaultModel?.canGenerateAudio);
   const wantsSound = nativeAudio && (musicPrompt.trim().length > 0 || language !== "None");
-  const prompt = buildQuickCreatePrompt(description, language, nativeAudio ? musicPrompt : "");
+  const basePrompt = buildQuickCreatePrompt(description, language, nativeAudio ? musicPrompt : "");
+  const prompt = basePrompt ? `${basePrompt} ${QUICK_CREATE_NO_TEXT}` : "";
+  // An outfit photo must be dressed on a model (and approved) before video.
+  const needsTryOn = Boolean(photo) && photoRole === "model";
+  const startFrame = needsTryOn ? tryOn?.objectPath ?? null : photo?.objectPath ?? null;
+
+  const onDressModel = () => {
+    if (!photo || generateImage.isPending) return;
+    generateImage.mutate(
+      {
+        data: {
+          prompt: buildTryOnPrompt(description),
+          referenceImagePath: photo.objectPath,
+          size: aspect === "16:9" ? "1536x1024" : aspect === "1:1" ? "1024x1024" : "1024x1536",
+        },
+      },
+      {
+        onSuccess: (image) => {
+          refreshCreditBalanceSafely(queryClient);
+          setTryOn({ objectPath: image.imagePath, previewUrl: storageUrl(image.imagePath) });
+        },
+        onError: (error: unknown) => {
+          refreshCreditBalanceSafely(queryClient);
+          toast({
+            title: "Could not dress the model",
+            description: apiErrorMessage(error, "Please try again."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
   const canGenerate =
-    !meLoading && !isFreePlan && !uploading && prompt.length > 0 && !generateVideo.isPending;
+    !meLoading &&
+    !isFreePlan &&
+    !uploading &&
+    prompt.length > 0 &&
+    !generateVideo.isPending &&
+    (!needsTryOn || Boolean(tryOn));
 
   const onGenerate = () => {
     if (!canGenerate) return;
-    const engine = quickCreateEngine(Boolean(photo));
+    const engine = quickCreateEngine(Boolean(startFrame));
     generateVideo.mutate(
       {
         data: {
           engine,
           prompt,
-          sourceImagePaths: photo ? [photo.objectPath] : [],
+          sourceImagePaths: startFrame ? [startFrame] : [],
           aspectRatio: aspect,
           durationSec,
           shotCount: 1,
@@ -332,18 +378,71 @@ export function QuickCreatePage() {
               onChange={(e) => void onPickFile(e.target.files?.[0])}
               data-testid="qc-photo-input"
             />
+            {photo && (
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="How to use this photo">
+                <Chip
+                  active={photoRole === "model"}
+                  onClick={() => setPhotoRole("model")}
+                  testId="qc-role-model"
+                >
+                  Put it on a model
+                </Chip>
+                <Chip
+                  active={photoRole === "as_is"}
+                  onClick={() => setPhotoRole("as_is")}
+                  testId="qc-role-as-is"
+                >
+                  Animate this photo as is
+                </Chip>
+              </div>
+            )}
             {photo ? (
+              <div className="flex flex-wrap items-start gap-4">
               <div className="relative h-40 w-32 overflow-hidden rounded-2xl border">
                 <img src={photo.previewUrl} alt={photo.name} className="h-full w-full object-cover" />
                 <button
                   type="button"
                   aria-label="Remove photo"
-                  onClick={() => setPhoto(null)}
+                  onClick={() => {
+                    setPhoto(null);
+                    setTryOn(null);
+                  }}
                   className="absolute right-2 top-2 rounded-full bg-background/90 p-1"
                   data-testid="qc-photo-remove"
                 >
                   <X className="h-4 w-4" />
                 </button>
+              </div>
+              {needsTryOn && (
+                <div className="flex flex-col gap-2" data-testid="qc-tryon">
+                  {tryOn ? (
+                    <img
+                      src={tryOn.previewUrl}
+                      alt="Model wearing your outfit"
+                      className="h-40 w-32 rounded-2xl border object-cover"
+                      data-testid="qc-tryon-image"
+                    />
+                  ) : (
+                    <div className="flex h-40 w-32 items-center justify-center rounded-2xl border border-dashed bg-muted/40 p-2 text-center text-xs text-muted-foreground">
+                      {generateImage.isPending ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        "Your model will appear here"
+                      )}
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant={tryOn ? "outline" : "default"}
+                    size="sm"
+                    onClick={onDressModel}
+                    disabled={generateImage.isPending}
+                    data-testid="qc-tryon-generate"
+                  >
+                    {tryOn ? "Try another look" : "Dress the model"}
+                  </Button>
+                </div>
+              )}
               </div>
             ) : (
               <button
@@ -459,7 +558,9 @@ export function QuickCreatePage() {
           <h2 className="font-semibold">Summary</h2>
           <dl className="grid grid-cols-2 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Type</dt>
-            <dd className="text-right font-semibold">{photo ? "Animate photo" : "Text to video"}</dd>
+            <dd className="text-right font-semibold">
+              {!photo ? "Text to video" : needsTryOn ? "Model wears your photo" : "Animate photo"}
+            </dd>
             <dt className="text-muted-foreground">Length · shape</dt>
             <dd className="text-right font-semibold">
               {durationSec}s · {aspect}
@@ -495,6 +596,11 @@ export function QuickCreatePage() {
               </span>
             )}
           </Button>
+          {needsTryOn && !tryOn && (
+            <p className="text-sm text-muted-foreground" data-testid="qc-tryon-hint">
+              First tap <strong>Dress the model</strong> and check the look. The video starts from that picture.
+            </p>
+          )}
           {creditFunded && quote && !quote.sufficient && (
             <p className="text-sm text-destructive">
               Not enough credits.{" "}

@@ -194,3 +194,26 @@ export function quickCreateDefaultModel(
 export function quickCreateEngine(hasPhoto: boolean): "image_to_video" | "text_to_video" {
   return hasPhoto ? "image_to_video" : "text_to_video";
 }
+
+/** Stops the video model inventing captions, logos or watermark-like text. */
+export const QUICK_CREATE_NO_TEXT =
+  "No on-screen text, captions, logos or watermarks.";
+
+/**
+ * Prompt for the "dress the model" image: the uploaded photo is only a
+ * reference for the garment or product, never the frame that gets animated,
+ * so mannequins, flat-lays and any text on the photo do not reach the video.
+ */
+export function buildTryOnPrompt(description: string): string {
+  const scene = description.trim();
+  return [
+    "Photorealistic full-length fashion photograph of a professional Indian model wearing exactly the outfit or holding exactly the product shown in the reference image.",
+    "Keep the colours, print, pattern, border, cut and fabric identical to the reference.",
+    "Natural pose, soft even studio light, clean plain background, sharp focus, high detail.",
+    scene ? `Scene idea: ${scene}.` : "",
+    "Do not copy any text, watermark, mannequin, hanger or background from the reference.",
+    QUICK_CREATE_NO_TEXT,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
