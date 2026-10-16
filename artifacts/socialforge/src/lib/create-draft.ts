@@ -82,7 +82,7 @@ export function emptyDraft(): CreateDraft {
       bars: 2,
       shape: "9:16",
       motion:
-        "The model sways gently to the music with small graceful hand movements and a soft smile, static camera",
+        "The model moves gracefully to the music like a fashion showcase, smiling and confident",
       starting: false,
     },
   };

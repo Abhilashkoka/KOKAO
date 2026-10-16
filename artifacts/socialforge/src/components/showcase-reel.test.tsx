@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const generateVideo = vi.fn();
 const generateImage = vi.fn();
 const navigate = vi.fn();
+const searchMusicLibrary = vi.fn();
+const importMusic = vi.fn();
 let uploads = 0;
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -16,6 +18,8 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useGenerateImage: () => ({ mutateAsync: generateImage, isPending: false }),
     useGenerateVideo: () => ({ mutateAsync: generateVideo, isPending: false }),
+    searchMusicLibrary: (...args: unknown[]) => searchMusicLibrary(...args),
+    useImportLibraryMusic: () => ({ mutateAsync: importMusic, isPending: false }),
   });
 });
 vi.mock("wouter", () => ({ useLocation: () => ["/create", navigate] }));
@@ -68,7 +72,9 @@ describe("Showcase reel", () => {
     generateImage.mockReset();
     navigate.mockReset();
     generateVideo.mockResolvedValue({ id: 42 });
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob(["x"]) })));
+    searchMusicLibrary.mockReset();
+    importMusic.mockReset();
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:preview" }));
   });
 
@@ -97,21 +103,44 @@ describe("Showcase reel", () => {
       musicStartSec: 0.4,
       musicPath: "/objects/uploads/1",
       reviewStoryboard: false,
+      generateAudio: false,
     });
     expect(data.prompt).toContain("No on-screen text");
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/results?job=42"));
   });
 
-  it("makes a cheaper photo reel as a slideshow", async () => {
+  it("waits for a music track before the reel can be made", async () => {
     renderReel();
     await addTwoDressedLooks();
+    expect((screen.getByTestId("reel-generate") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("reel-hint").textContent).toContain("music");
+  });
+
+  it("makes a cheaper photo reel with a track from the music library", async () => {
+    searchMusicLibrary.mockResolvedValue({
+      tracks: [{ id: "t1", title: "Raga Pop", creator: "A", license: "by", audioUrl: "https://cdn.test/t1.mp3" }],
+    });
+    importMusic.mockResolvedValue({ musicPath: "/objects/music/t1", title: "Raga Pop" });
+    renderReel();
+    await addTwoDressedLooks();
+    fireEvent.click(screen.getByTestId("reel-mood-sitar"));
+    await waitFor(() => expect(screen.getByTestId("reel-use-track-t1")).toBeTruthy());
+    expect(searchMusicLibrary).toHaveBeenCalledWith({ q: "Sitar" });
+    fireEvent.click(screen.getByTestId("reel-use-track-t1"));
+    await waitFor(() => expect(screen.getByTestId("reel-music-info").textContent).toContain("Raga Pop"));
+    expect(importMusic).toHaveBeenCalledWith({
+      data: { audioUrl: "https://cdn.test/t1.mp3", title: "Raga Pop" },
+    });
+
     fireEvent.click(screen.getByTestId("reel-style-photo"));
     fireEvent.click(screen.getByTestId("reel-generate"));
+    await waitFor(() => expect(generateVideo).toHaveBeenCalled());
     expect(generateVideo.mock.calls[0][0].data).toMatchObject({
       engine: "slideshow",
-      slideDurationSec: 3,
+      slideDurationSec: 4.286,
       sourceImagePaths: ["/objects/generated/a", "/objects/generated/b"],
-      musicPath: null,
+      musicPath: "/objects/music/t1",
+      beatSec: 2.143,
     });
   });
 

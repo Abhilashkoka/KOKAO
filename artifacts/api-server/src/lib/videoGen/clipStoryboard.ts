@@ -84,6 +84,29 @@ export const MAX_CLIP_SHOTS = 10;
 export const MAX_REEL_CLIPS = 6;
 
 /**
+ * A different move for each look, so a showcase reel reads as choreography
+ * rather than the same sway six times. Gentle, fashion-show moves that a video
+ * model renders cleanly from a full-length studio photo.
+ */
+export const REEL_MOVES = [
+  "She does a slow, graceful twirl so the outfit flares out, then ends facing the camera with a smile.",
+  "She takes two elegant steps toward the camera on the beat, then turns to show the side of the outfit.",
+  "She moves rhythmically to the music with light, graceful hand gestures, then does a half turn to show the back.",
+  "She lightly lifts the fabric at the hem and does a small, joyful dance step.",
+  "She turns slowly from side to side to show the whole outfit, then strikes a confident pose.",
+  "She does a playful little spin and settles into a graceful pose, smiling.",
+] as const;
+
+const REEL_STYLE =
+  "Smooth, natural, rhythmic movement in time with the music. Static camera, her full body stays in frame the whole time, same plain studio backdrop and lighting. The outfit keeps its exact colours and pattern.";
+
+/** The prompt for look `index` of a showcase reel. */
+export function reelLookPrompt(userMotion: string, index: number): string {
+  const move = REEL_MOVES[index % REEL_MOVES.length];
+  return [userMotion, move, REEL_STYLE].filter(Boolean).join(" ");
+}
+
+/**
  * Cut length that keeps a reel on the music: the longest whole number of bars
  * that fits inside what was rendered (never less than one bar, never longer
  * than the clip). Null when there is no usable beat.
@@ -503,7 +526,12 @@ export async function planClipStoryboard(
         // A slide's caption starts empty; the whole-video overlayText, if the
         // request set one, keeps captioning the whole video until a slide
         // caption replaces it.
-        visual: source === "photo" ? (job.prompt ?? "").trim() : "",
+        visual:
+          source === "photo"
+            ? options.photoClips
+              ? reelLookPrompt((job.prompt ?? "").trim(), i)
+              : (job.prompt ?? "").trim()
+            : "",
         durationSec: perScene,
         previewPath: path,
         outfitId: null,
@@ -697,9 +725,12 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       params.onStage?.(`Animating look${shotLabel}`);
       if (!scene.previewPath) throw new VideoGenProviderError("A photo in this reel is missing.");
       const loaded = await params.load(scene.previewPath);
+      // Dressed looks are studio photos on a plain backdrop: crop to fill,
+      // never pad with a blurred border the model would then animate.
       image = await fitImageToAspect(
         { buffer: loaded.buffer, mimeType: loaded.mimeType },
         aspectRatio,
+        "cover",
       );
     } else if (storyboard.visualsSource === "character") {
       params.onStage?.(`Filming shot${shotLabel}`);

@@ -39,6 +39,7 @@ const state = vi.hoisted(() => ({
   musicStartSec: undefined as number | null | undefined,
   trims: [] as number[],
   fittedImages: [] as string[],
+  fitModes: [] as string[],
 }));
 
 vi.mock("../characterAssets", () => ({
@@ -177,8 +178,9 @@ vi.mock("./postprocess", () => ({
     state.trims.push(sec);
     return buffer;
   }),
-  fitImageToAspect: vi.fn(async (image: { buffer: Buffer; mimeType: string }) => {
+  fitImageToAspect: vi.fn(async (image: { buffer: Buffer; mimeType: string }, _aspect: string, mode?: string) => {
     state.fittedImages.push(image.buffer.toString());
+    state.fitModes.push(mode ?? "pad");
     return image;
   }),
 }));
@@ -232,6 +234,7 @@ beforeEach(() => {
   state.musicStartSec = undefined;
   state.trims = [];
   state.fittedImages = [];
+  state.fitModes = [];
 });
 
 function makeJob(overrides: Partial<VideoGeneration>): VideoGeneration {
@@ -1113,7 +1116,10 @@ describe("showcase reel (one clip per photo)", () => {
       "photo",
     );
     expect(result.scenes.map((scene) => scene.previewPath)).toEqual(photos.slice(0, 6));
-    expect(result.scenes.every((scene) => scene.visual === "Model sways gently")).toBe(true);
+    // Each look keeps the user's motion and gets its own move.
+    expect(result.scenes.every((scene) => scene.visual.startsWith("Model sways gently"))).toBe(true);
+    expect(new Set(result.scenes.map((scene) => scene.visual)).size).toBe(6);
+    expect(result.scenes[0].visual).toContain("twirl");
   });
 
   it("animates each scene from its own photo, cuts to whole bars and starts the music on the beat", async () => {
@@ -1138,6 +1144,8 @@ describe("showcase reel (one clip per photo)", () => {
       music: Buffer.from("music"),
       load: async (path) => ({ buffer: Buffer.from(path), mimeType: "image/png" }),
     });
+    // Cropped to fill, never padded with a blurred border.
+    expect(state.fitModes).toEqual(["cover", "cover", "cover"]);
     expect(state.fittedImages).toEqual([
       "/objects/1/u/look1.png",
       "/objects/1/u/look2.png",

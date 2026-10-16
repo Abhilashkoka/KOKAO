@@ -6,8 +6,11 @@ import {
   getQuoteCreditsQueryKey,
   useGenerateImage,
   useGenerateVideo,
+  searchMusicLibrary,
+  useImportLibraryMusic,
   useQuoteCredits,
   useRequestUploadUrl,
+  type MusicTrack,
 } from "@workspace/api-client-react";
 import {
   ImagePlus,
@@ -37,6 +40,14 @@ import {
 import { cn } from "@/lib/utils";
 
 export const MAX_REEL_LOOKS = 6;
+/** Quick searches in the built-in, commercially licensed music library. */
+const MUSIC_MOODS = [
+  "Indian festive",
+  "Bollywood dance",
+  "Sitar",
+  "Fashion runway",
+  "Upbeat pop",
+] as const;
 const SHAPES = ["9:16", "1:1", "16:9"] as const;
 type Shape = (typeof SHAPES)[number];
 const sizeFor = (shape: Shape) =>
@@ -103,6 +114,11 @@ export function ShowcaseReel({
   const outfitInput = useRef<HTMLInputElement>(null);
   const modelInput = useRef<HTMLInputElement>(null);
   const musicInput = useRef<HTMLInputElement>(null);
+  const importMusic = useImportLibraryMusic();
+  const [mood, setMood] = useState<string | null>(null);
+  const [tracks, setTracks] = useState<MusicTrack[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [importingId, setImportingId] = useState<string | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -223,6 +239,47 @@ export function ShowcaseReel({
     }
   };
 
+  const searchMusic = async (query: string) => {
+    setMood(query);
+    setSearching(true);
+    try {
+      const result = await searchMusicLibrary({ q: query });
+      setTracks((result?.tracks ?? []).slice(0, 6));
+    } catch (error) {
+      setTracks([]);
+      fail("Music search failed")(error);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  /** Copy a library track into this workspace and find its beat. */
+  const chooseTrack = async (track: MusicTrack) => {
+    setImportingId(track.id);
+    try {
+      const { musicPath } = await importMusic.mutateAsync({
+        data: { audioUrl: track.audioUrl, title: track.title },
+      });
+      let beat = null;
+      try {
+        const res = await fetch(`/api/storage${musicPath}`);
+        const blob = await res.blob();
+        beat = await analyzeMusicFile(
+          new File([blob], track.title, { type: blob.type || "audio/mpeg" }),
+        );
+      } catch {
+        // No beat found: the reel still uses the track, with even cuts.
+      }
+      updateReel({ music: { objectPath: musicPath, name: track.title, beat } });
+      setTracks([]);
+      setMood(null);
+    } catch (error) {
+      fail("Could not use that track")(error);
+    } finally {
+      setImportingId(null);
+    }
+  };
+
   /** The face every look must keep: the uploaded model, else the first dressed look. */
   const faceFor = (lookId: string): string | null => {
     const reel = getDraft().reel;
@@ -286,7 +343,8 @@ export function ShowcaseReel({
     }
   };
 
-  const ready = looks.length >= 2 && looks.every((look) => look.dressed);
+  const ready =
+    looks.length >= 2 && looks.every((look) => look.dressed) && Boolean(music);
   const anyPending = looks.some((look) => look.pending);
   const timing = lookTiming(music?.beat ?? null, bars, style);
   const totalSec = Math.round(timing.onScreenSec * looks.length * 10) / 10;
@@ -325,7 +383,9 @@ export function ShowcaseReel({
             photoClips: true,
             prompt: `${motion.trim()}. No on-screen text, captions, logos or watermarks.`,
             durationSec: timing.clipSec,
-            generateAudio: music ? false : null,
+            // The reel's sound is the chosen track only: per-clip AI audio
+            // would change at every cut.
+            generateAudio: false,
           }
         : {
             ...common,
@@ -530,27 +590,83 @@ export function ShowcaseReel({
             onChange={(e) => void pickMusic(e.target.files?.[0])}
             data-testid="reel-music-input"
           />
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-2">
+            {MUSIC_MOODS.map((m) => (
+              <Chip
+                key={m}
+                active={mood === m}
+                onClick={() => void searchMusic(m)}
+                testId={`reel-mood-${m.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                {m}
+              </Chip>
+            ))}
             <Button
               variant="outline"
+              size="sm"
+              className="h-9 rounded-full"
               onClick={() => musicInput.current?.click()}
               disabled={analyzing}
             >
               {analyzing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {music ? "Change track" : "Upload a track"}
+              Upload my own
             </Button>
-            {music && (
-              <span className="text-sm" data-testid="reel-music-info">
+          </div>
+          {searching && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Finding tracks…
+            </p>
+          )}
+          {!searching && tracks.length > 0 && (
+            <ul className="space-y-2" data-testid="reel-tracks">
+              {tracks.map((track) => (
+                <li
+                  key={track.id}
+                  className="flex flex-wrap items-center gap-3 rounded-2xl border p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{track.title}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {track.creator ? `${track.creator} · ` : ""}CC {track.license}
+                      {track.durationSec ? ` · ${track.durationSec}s` : ""}
+                    </p>
+                  </div>
+                  <audio
+                    controls
+                    preload="none"
+                    src={track.audioUrl}
+                    className="h-9 w-full sm:w-56"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => void chooseTrack(track)}
+                    disabled={importingId !== null}
+                    data-testid={`reel-use-track-${track.id}`}
+                  >
+                    {importingId === track.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Use"
+                    )}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {music ? (
+            <div className="space-y-2 rounded-2xl bg-pastel-mint/40 p-3">
+              <p className="text-sm font-semibold" data-testid="reel-music-info">
                 {music.name}
                 {music.beat
                   ? ` · ${Math.round(music.beat.bpm)} BPM · cuts on the beat`
                   : " · even cuts"}
-              </span>
-            )}
-          </div>
-          {!music && (
+              </p>
+              <audio controls preload="none" src={previewOf(music)} className="h-9 w-full" />
+            </div>
+          ) : (
             <p className="text-xs text-muted-foreground">
-              Add a track to cut every look on its beat.
+              Pick a mood for free, licence-safe music, or upload your own. Every look is
+              cut on its beat.
             </p>
           )}
         </div>
@@ -676,7 +792,9 @@ export function ShowcaseReel({
           <p className="text-sm text-muted-foreground" data-testid="reel-hint">
             {looks.length < 2
               ? "Add at least 2 outfits."
-              : "Dress the model in every look, then make the reel."}
+              : !looks.every((look) => look.dressed)
+                ? "Dress the model in every look."
+                : "Pick a music track, then make the reel."}
           </p>
         )}
         <p className="text-xs text-muted-foreground">

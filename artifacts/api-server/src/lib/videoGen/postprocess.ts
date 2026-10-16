@@ -282,7 +282,10 @@ export async function normalizeVideo(
         "-i",
         "in.mp4",
         "-vf",
-        `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+        // Trim 1% off every edge first: AI clips often carry a few columns of
+        // corrupt pixels (a red or green line) along the frame border.
+        `crop=trunc(iw*0.98/2)*2:trunc(ih*0.98/2)*2,` +
+          `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
           `crop=${width}:${height},setsar=1,fps=30,` +
           (grade ? `${EDITORIAL_VIDEO_FILTER},` : "") + "format=yuv420p",
         "-map",
@@ -500,6 +503,12 @@ export async function concatClips(clips: Buffer[]): Promise<Buffer> {
 export async function fitImageToAspect(
   image: { buffer: Buffer; mimeType: string },
   aspectRatio: VideoAspect,
+  /**
+   * "pad" (default) keeps the whole photo on a blurred backdrop. "cover"
+   * crops to fill the frame: for studio photos on a plain backdrop (showcase
+   * reels), so the video model never animates a blurred border.
+   */
+  mode: "pad" | "cover" = "pad",
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
   const dir = await mkdtemp(join(tmpdir(), "kokao-fit-image-"));
@@ -511,10 +520,13 @@ export async function fitImageToAspect(
         "-i",
         "in.img",
         "-filter_complex",
-        `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
-          `crop=${width}:${height},boxblur=40,eq=brightness=-0.15[bg];` +
-          `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease[fg];` +
-          `[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuvj420p`,
+        mode === "cover"
+          ? `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+              `crop=${width}:${height},format=yuvj420p`
+          : `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+              `crop=${width}:${height},boxblur=40,eq=brightness=-0.15[bg];` +
+              `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease[fg];` +
+              `[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuvj420p`,
         "-frames:v",
         "1",
         "-q:v",
