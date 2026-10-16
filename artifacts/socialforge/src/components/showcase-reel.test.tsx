@@ -8,11 +8,12 @@ const navigate = vi.fn();
 const searchMusicLibrary = vi.fn();
 const importMusic = vi.fn();
 let uploads = 0;
+let quote: unknown = undefined;
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
-    useQuoteCredits: () => ({ data: undefined }),
+    useQuoteCredits: () => ({ data: quote }),
     useRequestUploadUrl: () => ({
       mutateAsync: async () => ({ uploadURL: "https://upload.test/x", objectPath: `/objects/uploads/${++uploads}` }),
     }),
@@ -68,6 +69,7 @@ describe("Showcase reel", () => {
   beforeEach(() => {
     __resetDraftStoreForTests();
     uploads = 0;
+    quote = undefined;
     generateVideo.mockReset();
     generateImage.mockReset();
     navigate.mockReset();
@@ -159,5 +161,20 @@ describe("Showcase reel", () => {
     renderReel();
     await waitFor(() => expect(screen.getByTestId("reel-dressed-0")).toBeTruthy());
     expect(screen.getByTestId("reel-look-1")).toBeTruthy();
+  });
+
+  it("starts on the Photo reel when the balance can't cover the video", async () => {
+    quote = { credits: 1020, sufficient: false, balanceAfter: -200 };
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ShowcaseReel disabled={false} creditFunded />
+      </QueryClientProvider>,
+    );
+    await addTwoDressedLooks();
+    await waitFor(() =>
+      expect(screen.getByTestId("reel-style-photo").getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(screen.getByTestId("reel-video-price").textContent).toContain("1,020");
+    expect(screen.getByText("Top up to unlock")).toBeTruthy();
   });
 });

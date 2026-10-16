@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const approve = vi.fn();
+const navigate = vi.fn();
 let jobs: unknown[] = [];
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -17,11 +18,12 @@ vi.mock("@workspace/api-client-react", async () => {
 vi.mock("@/components/video-download-button", () => ({ VideoDownloadButton: () => null }));
 vi.mock("wouter", () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
-  useLocation: () => ["/results", vi.fn()],
+  useLocation: () => ["/results", navigate],
   useSearch: () => "",
 }));
 
 const { ResultsPage } = await import("./results");
+const { getDraft, __resetDraftStoreForTests } = await import("@/lib/create-draft");
 
 function renderPage() {
   return render(
@@ -72,5 +74,41 @@ describe("Results review", () => {
     renderPage();
     expect(screen.queryByTestId("results-approve")).toBeNull();
     expect(screen.getByTestId("results-review-studio")).toBeTruthy();
+  });
+});
+
+describe("Photo reel upgrade", () => {
+  const photoReel = {
+    id: 9,
+    status: "succeeded",
+    engine: "slideshow",
+    aspectRatio: "9:16",
+    sourceImagePaths: ["/objects/look-a", "/objects/look-b"],
+    videoPath: "/objects/reel.mp4",
+    currentVideoPath: "/objects/reel.mp4",
+    guidedStoryDraftId: null,
+    compliance: null,
+  };
+
+  beforeEach(() => {
+    __resetDraftStoreForTests();
+    navigate.mockReset();
+  });
+
+  it("brings a photo reel's looks back to Create as a video reel", () => {
+    jobs = [photoReel];
+    renderPage();
+    fireEvent.click(screen.getByTestId("results-bring-to-life-button"));
+    const draft = getDraft();
+    expect(draft.mode).toBe("reel");
+    expect(draft.reel.style).toBe("video");
+    expect(draft.reel.looks.map((l) => l.dressed?.objectPath)).toEqual(["/objects/look-a", "/objects/look-b"]);
+    expect(navigate).toHaveBeenCalledWith("/create?mode=reel");
+  });
+
+  it("is not offered on AI video jobs", () => {
+    jobs = [{ ...photoReel, engine: "image_to_video" }];
+    renderPage();
+    expect(screen.queryByTestId("results-bring-to-life")).toBeNull();
   });
 });

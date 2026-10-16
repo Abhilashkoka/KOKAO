@@ -13,7 +13,9 @@ import {
   type MusicTrack,
 } from "@workspace/api-client-react";
 import {
+  Clapperboard,
   ImagePlus,
+  Images,
   Loader2,
   Music2,
   Sparkles,
@@ -357,10 +359,25 @@ export function ShowcaseReel({
   const { data: quote } = useQuoteCredits(quoteParams, {
     query: {
       queryKey: getQuoteCreditsQueryKey(quoteParams),
-      enabled: creditFunded && style === "video" && looks.length >= 2,
+      enabled: creditFunded && looks.length >= 2,
       staleTime: 30_000,
     },
   });
+
+  // Low balance: start on the Photo reel (Video stays visible with a top-up
+  // note). Only once, and never after the user picked a type themselves.
+  const styleTouched = useRef(false);
+  const videoUnaffordable = creditFunded && Boolean(quote) && !quote!.sufficient;
+  useEffect(() => {
+    if (videoUnaffordable && style === "video" && !styleTouched.current) {
+      styleTouched.current = true;
+      updateReel({ style: "photo" });
+    }
+  }, [videoUnaffordable, style]);
+  const pickStyle = (next: "video" | "photo") => {
+    styleTouched.current = true;
+    updateReel({ style: next });
+  };
 
   const onGenerate = () => {
     if (!ready || disabled || starting) return;
@@ -686,28 +703,7 @@ export function ShowcaseReel({
           />
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-3">
-          <div className="space-y-2">
-            <span className="text-sm font-semibold text-muted-foreground">
-              Reel type
-            </span>
-            <div className="flex flex-wrap gap-2">
-              <Chip
-                active={style === "video"}
-                onClick={() => updateReel({ style: "video" })}
-                testId="reel-style-video"
-              >
-                Video
-              </Chip>
-              <Chip
-                active={style === "photo"}
-                onClick={() => updateReel({ style: "photo" })}
-                testId="reel-style-photo"
-              >
-                Photo
-              </Chip>
-            </div>
-          </div>
+        <div className="grid gap-5 sm:grid-cols-2">
           <div className="space-y-2">
             <span className="text-sm font-semibold text-muted-foreground">
               Per look
@@ -757,11 +753,55 @@ export function ShowcaseReel({
           <dd className="text-right font-semibold" data-testid="reel-total">
             ~{totalSec}s
           </dd>
-          <dt className="text-muted-foreground">Type</dt>
-          <dd className="text-right font-semibold">
-            {style === "video" ? "AI video" : "Photo motion"}
-          </dd>
         </dl>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Reel type">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={style === "video"}
+            onClick={() => pickStyle("video")}
+            data-testid="reel-style-video"
+            className={cn(
+              "flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors",
+              style === "video"
+                ? "border-primary bg-pastel-lavender/60 ring-2 ring-primary/20"
+                : "hover:bg-muted/60",
+            )}
+          >
+            <span className="flex items-center gap-1 text-sm font-semibold">
+              <Clapperboard className="h-4 w-4" /> Video reel
+            </span>
+            <span className="text-xs text-muted-foreground">She twirls, walks and turns</span>
+            <span className="text-xs font-semibold" data-testid="reel-video-price">
+              ~3 min
+              {creditFunded && quote ? ` · ${quote.credits.toLocaleString("en-IN")} cr` : ""}
+            </span>
+            {videoUnaffordable && (
+              <span className="text-xs font-semibold text-destructive">Top up to unlock</span>
+            )}
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={style === "photo"}
+            onClick={() => pickStyle("photo")}
+            data-testid="reel-style-photo"
+            className={cn(
+              "flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors",
+              style === "photo"
+                ? "border-primary bg-pastel-mint/60 ring-2 ring-primary/20"
+                : "hover:bg-muted/60",
+            )}
+          >
+            <span className="flex items-center gap-1 text-sm font-semibold">
+              <Images className="h-4 w-4" /> Photo reel
+            </span>
+            <span className="text-xs text-muted-foreground">Looks glide in on the beat</span>
+            <span className="text-xs font-semibold" data-testid="reel-photo-price">
+              ~20 s · no video credits
+            </span>
+          </button>
+        </div>
         <Button
           size="lg"
           className="h-14 w-full rounded-2xl text-base"

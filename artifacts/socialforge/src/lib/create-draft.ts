@@ -165,6 +165,28 @@ export const updateReel = (change: Partial<ReelDraft> | ((r: ReelDraft) => Parti
     reel: { ...d.reel, ...(typeof change === "function" ? change(d.reel) : change) },
   }));
 
+/**
+ * "Bring it to life": put a finished Photo reel's dressed photos back on the
+ * Showcase reel as a Video reel, keeping the current music if there is one.
+ */
+export function loadReelFromPhotos(paths: string[], aspect: string): void {
+  const shape = aspect === "1:1" || aspect === "16:9" ? aspect : "9:16";
+  updateDraft((d) => ({
+    ...d,
+    mode: "reel",
+    reel: {
+      ...d.reel,
+      model: null,
+      style: "video",
+      shape,
+      looks: paths.slice(0, 6).map((path, i) => {
+        const photo = { objectPath: path, name: `Look ${i + 1}` };
+        return { id: `reel-${Date.now()}-${i}`, outfit: photo, dressed: photo, pending: false };
+      }),
+    },
+  }));
+}
+
 /** Start over (used after a video is started, and when the workspace changes). */
 export function resetDraft(keep: Partial<Pick<CreateDraft, "tenantId" | "mode">> = {}): void {
   updateDraft(() => ({ ...emptyDraft(), ...keep }));

@@ -9,7 +9,8 @@ import {
   useListVideoJobs,
   type VideoJob,
 } from "@workspace/api-client-react";
-import { CheckCircle2, Clock, Loader2, Pencil, Plus, XCircle } from "lucide-react";
+import { CheckCircle2, Clapperboard, Clock, Loader2, Pencil, Plus, XCircle } from "lucide-react";
+import { loadReelFromPhotos } from "@/lib/create-draft";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -312,6 +313,29 @@ export function ResultsPage() {
                 </Button>
               </div>
             )}
+            {selected.status === "succeeded" &&
+              selected.engine === "slideshow" &&
+              selected.sourceImagePaths.length >= 2 && (
+                <div
+                  className="space-y-2 rounded-2xl bg-pastel-lavender/50 p-4"
+                  data-testid="results-bring-to-life"
+                >
+                  <p className="text-sm">
+                    <strong>Bring it to life.</strong> Turn these looks into a video reel
+                    where she twirls, walks and turns. You'll see the cost before it starts.
+                  </p>
+                  <Button
+                    className="w-full"
+                    onClick={() => {
+                      loadReelFromPhotos(selected.sourceImagePaths, selected.aspectRatio);
+                      navigate("/create?mode=reel");
+                    }}
+                    data-testid="results-bring-to-life-button"
+                  >
+                    <Clapperboard className="mr-2 h-4 w-4" /> Bring it to life
+                  </Button>
+                </div>
+              )}
             <Button asChild variant="secondary" className="w-full">
               <Link href="/create" data-testid="results-make-another">
                 Make another
