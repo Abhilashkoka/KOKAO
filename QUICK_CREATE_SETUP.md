@@ -43,11 +43,13 @@ Commit or stash any Replit edits first, then in the Shell:
 git fetch origin
 git checkout feat/quick-create
 pnpm install
-pnpm --filter @workspace/db run push   # creates the quick_create_presets table
+psql "$DATABASE_URL" -f lib/db/sql/2026-10-16_quick_create_presets.sql   # adds only the new table
 ```
 
-Restart the Run. For production, run `lib/db/sql/2026-10-16_quick_create_presets.sql`
-(safe to run twice) or the same `push` against the production database.
+Restart the Run. Do the same SQL step for production (safe to run twice).
+
+Do NOT use `pnpm --filter @workspace/db run push` for this: if your database has
+columns from work that is not on GitHub yet, push offers to DROP them.
 
 ## Checks run
 - Typecheck: libs, API server and web app pass.
