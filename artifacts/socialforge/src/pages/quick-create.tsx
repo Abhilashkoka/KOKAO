@@ -198,7 +198,21 @@ export function QuickCreatePage() {
   const search = useSearch();
   const highlightPhoto = new URLSearchParams(search).get("photo") === "1";
 
-  const applyPreset = (next: QuickCreatePreset) =>
+  const [handoffFiles, setHandoffFiles] = useState<File[] | null>(null);
+  const applyPreset = (next: QuickCreatePreset) => {
+    // A showcase shows several outfits, so it opens the Showcase reel.
+    if (/showcase/i.test(`${next.id} ${next.label}`)) {
+      updateDraft((d) => ({
+        ...d,
+        mode: "reel",
+        reel: { ...d.reel, motion: next.prompt, shape: next.aspect },
+      }));
+      toast({
+        title: "Showcase reel",
+        description: "Add up to 6 outfits. Each one becomes a look in the reel.",
+      });
+      return;
+    }
     updateSingle({
       presetId: next.id,
       description: next.prompt,
@@ -206,6 +220,19 @@ export function QuickCreatePage() {
       aspect: next.aspect,
       musicPrompt: next.musicPrompt ?? "",
     });
+  };
+
+  const onPickFiles = (files: FileList | null) => {
+    const images = Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (images.length > 1) {
+      // Several outfits: that's a showcase reel, not a single video.
+      setHandoffFiles(images);
+      setMode("reel");
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
+    void onPickFile(files?.[0]);
+  };
 
   const onPickFile = async (file: File | undefined) => {
     if (!file) return;
@@ -430,6 +457,8 @@ export function QuickCreatePage() {
         <ShowcaseReel
           disabled={isFreePlan || meLoading}
           creditFunded={creditFunded}
+          handoffFiles={handoffFiles}
+          onHandoffTaken={() => setHandoffFiles(null)}
         />
       ) : (
         <>
@@ -491,8 +520,9 @@ export function QuickCreatePage() {
                   ref={fileInput}
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
-                  onChange={(e) => void onPickFile(e.target.files?.[0])}
+                  onChange={(e) => onPickFiles(e.target.files)}
                   data-testid="qc-photo-input"
                 />
                 {photo && (
@@ -585,6 +615,9 @@ export function QuickCreatePage() {
                       <ImagePlus className="h-6 w-6" />
                     )}
                     {uploading ? "Uploading…" : "Add a photo"}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      Pick several outfits to make a showcase reel
+                    </span>
                   </button>
                 )}
               </div>

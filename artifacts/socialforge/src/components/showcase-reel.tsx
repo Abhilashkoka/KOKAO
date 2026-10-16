@@ -79,9 +79,14 @@ function Chip({
 export function ShowcaseReel({
   disabled,
   creditFunded,
+  handoffFiles,
+  onHandoffTaken,
 }: {
   disabled: boolean;
   creditFunded: boolean;
+  /** Outfit photos picked elsewhere on Create (several at once) to add as looks. */
+  handoffFiles?: File[] | null;
+  onHandoffTaken?: () => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -131,7 +136,7 @@ export function ShowcaseReel({
       variant: "destructive",
     });
 
-  const addOutfits = async (files: FileList | null) => {
+  const addOutfits = async (files: FileList | File[] | null) => {
     if (!files?.length) return;
     const room = MAX_REEL_LOOKS - getDraft().reel.looks.length;
     const picked = Array.from(files)
@@ -164,6 +169,16 @@ export function ShowcaseReel({
       if (outfitInput.current) outfitInput.current.value = "";
     }
   };
+
+  // Photos handed over from the single-video form become looks here.
+  const takenHandoff = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!handoffFiles?.length || takenHandoff.current === handoffFiles) return;
+    takenHandoff.current = handoffFiles;
+    onHandoffTaken?.();
+    void addOutfits(handoffFiles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoffFiles]);
 
   const pickModel = async (file: File | undefined) => {
     if (!file) return;

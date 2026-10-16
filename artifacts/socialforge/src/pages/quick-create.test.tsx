@@ -113,4 +113,25 @@ describe("Quick Create try-on", () => {
     fireEvent.click(screen.getByTestId("qc-start-over"));
     expect((screen.getByTestId("qc-description") as HTMLTextAreaElement).value).toBe("");
   });
+
+  it("opens the showcase reel from a showcase template", async () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId("qc-preset-saree-showcase"));
+    await waitFor(() => expect(screen.getByTestId("showcase-reel")).toBeTruthy());
+  });
+
+  it("turns several picked photos into reel looks", async () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId("qc-photo-input"), {
+      target: {
+        files: [
+          new File(["x"], "a.png", { type: "image/png" }),
+          new File(["x"], "b.png", { type: "image/png" }),
+          new File(["x"], "c.png", { type: "image/png" }),
+        ],
+      },
+    });
+    await waitFor(() => expect(screen.getByTestId("reel-look-2")).toBeTruthy());
+    expect(screen.queryByTestId("reel-look-3")).toBeNull();
+  });
 });
