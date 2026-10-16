@@ -3,6 +3,8 @@ import { UserButton, useAuth } from "@clerk/react";
 import { 
   LayoutDashboard,
   Wand2,
+  PlusCircle,
+  Clapperboard,
   Library,
   Calendar, 
   Palette, 
@@ -43,6 +45,8 @@ const NAV_ITEMS: {
   feature?: FeatureId;
 }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/create", label: "Create", icon: PlusCircle, feature: "aiStudio" },
+  { href: "/results", label: "Results", icon: Clapperboard, feature: "aiStudio" },
   { href: "/studio", label: "AI Studio", icon: Wand2, feature: "aiStudio" },
   { href: "/library", label: "Content Library", icon: Library, feature: "contentLibrary" },
   { href: "/schedule", label: "Schedule", icon: Calendar, feature: "scheduling" },
