@@ -77,3 +77,14 @@ Requirements:
 ## Drafts survive navigation
 
 Everything on Create is kept in a draft: photos, dressed looks, music, settings, and any request still running. You can leave Create and come back, or refresh the page, and nothing is lost. The draft belongs to one workspace. **Start over** clears it.
+
+## Updating the Replit preview
+
+One command pulls the latest code, rebuilds the web app, restarts the API in the background, and waits until both are healthy. It never touches the database.
+
+```
+bash scripts/kokao-update.sh            # pull feat/quick-create-v2 and restart
+bash scripts/kokao-update.sh --no-pull  # restart only (e.g. after the workspace slept)
+```
+
+The API log is at `/tmp/api.log`.
