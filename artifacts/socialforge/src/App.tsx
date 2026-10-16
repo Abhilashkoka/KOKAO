@@ -5,6 +5,8 @@ import { TermsPage } from "@/pages/terms";
 import { DashboardPage } from "@/pages/dashboard";
 import { SignInPage, SignUpPage } from "@/pages/auth";
 import { StudioPage } from "@/pages/studio";
+import { QuickCreatePage } from "@/pages/quick-create";
+import { ResultsPage } from "@/pages/results";
 import { LibraryPage } from "@/pages/library";
 import { EditorPage } from "@/pages/editor";
 import { SchedulePage } from "@/pages/schedule";
@@ -250,6 +252,8 @@ function ClerkProviderWithRoutes() {
                 <Route path="/privacy" component={PrivacyPage} />
                 <Route path="/terms" component={TermsPage} />
 
+                <Route path="/create" component={() => <ProtectedRoute component={QuickCreatePage} feature="aiStudio" featureLabel="Create" />} />
+                <Route path="/results" component={() => <ProtectedRoute component={ResultsPage} feature="aiStudio" featureLabel="Results" />} />
                 <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
                 {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
                 <Route path="/video-studio" component={VideoStudioRedirect} />
