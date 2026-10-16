@@ -211,6 +211,8 @@ export function QuickCreatePage() {
           shotCount: 1,
           generateAudio: wantsSound ? true : null,
           visualsSource: "stock",
+          // One shot from one sentence: nothing to review, render straight away.
+          reviewStoryboard: false,
         },
       },
       {
