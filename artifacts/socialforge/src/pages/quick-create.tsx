@@ -37,6 +37,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useCreditFunding } from "@/components/credit-balance";
 import { ShowcaseReel } from "@/components/showcase-reel";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { uploadErrorMessage, uploadToStorage } from "@/lib/upload-file";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { trackProjectEvent } from "@/lib/analytics";
 import {
@@ -257,15 +258,7 @@ export function QuickCreatePage() {
     }
     setUploading(true);
     try {
-      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
-        data: { name: file.name, size: file.size, contentType: file.type },
-      });
-      const put = await fetch(uploadURL, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      const { objectPath } = await uploadToStorage(requestUploadUrl.mutateAsync, file);
       updateSingle({
         photo: { objectPath, previewUrl: URL.createObjectURL(file), name: file.name },
         dressed: null,
@@ -273,7 +266,7 @@ export function QuickCreatePage() {
     } catch (error) {
       toast({
         title: "Could not upload the photo",
-        description: apiErrorMessage(error, "Please try again."),
+        description: uploadErrorMessage(error),
         variant: "destructive",
       });
     } finally {

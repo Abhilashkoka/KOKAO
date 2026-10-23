@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { uploadErrorMessage, uploadToStorage } from "@/lib/upload-file";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { trackProjectEvent } from "@/lib/analytics";
 import { analyzeMusicFile, lookTiming } from "@/lib/beat";
@@ -133,15 +133,7 @@ export function ShowcaseReel({
     updateReel((r) => ({ looks: change(r.looks) }));
 
   const upload = async (file: File): Promise<Uploaded> => {
-    const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
-      data: { name: file.name, size: file.size, contentType: file.type },
-    });
-    const put = await fetch(uploadURL, {
-      method: "PUT",
-      body: file,
-      headers: { "Content-Type": file.type },
-    });
-    if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+    const { objectPath } = await uploadToStorage(requestUploadUrl.mutateAsync, file);
     return {
       objectPath,
       previewUrl: URL.createObjectURL(file),
@@ -151,7 +143,7 @@ export function ShowcaseReel({
   const fail = (title: string) => (error: unknown) =>
     toast({
       title,
-      description: apiErrorMessage(error, "Please try again."),
+      description: uploadErrorMessage(error),
       variant: "destructive",
     });
 
