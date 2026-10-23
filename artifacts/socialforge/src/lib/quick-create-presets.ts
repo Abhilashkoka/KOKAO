@@ -21,6 +21,23 @@ export interface QuickCreatePreset {
   /** Shown as a hint on the photo step; the photo stays optional. */
   photoHint?: string;
   musicPrompt?: string;
+  /** Who models the outfit when no model photo is given. */
+  gender?: ModelGender;
+}
+
+export type ModelGender = "woman" | "man";
+
+/**
+ * Admin-made templates carry no gender field, so read it from the name:
+ * "Kurta for men", "Sherwani", "Groom" mean a male model. Anything else
+ * leaves the current choice alone.
+ */
+export function presetGender(preset: Pick<QuickCreatePreset, "label" | "prompt" | "gender">): ModelGender | null {
+  if (preset.gender) return preset.gender;
+  const text = `${preset.label} ${preset.prompt}`.toLowerCase();
+  if (/\b(men'?s|man|male|groom|sherwani|bandhgala|nehru jacket|he)\b/.test(text)) return "man";
+  if (/\b(women'?s|woman|female|bride|saree|lehenga|she)\b/.test(text)) return "woman";
+  return null;
 }
 
 export const QUICK_CREATE_VERTICALS: { id: QuickCreateVertical; label: string }[] = [
@@ -42,6 +59,43 @@ export const QUICK_CREATE_PRESETS: QuickCreatePreset[] = [
     aspect: "9:16",
     photoHint: "Add a photo of the saree",
     musicPrompt: "Soft Indian sitar and tabla, gentle and festive",
+    gender: "woman",
+  },
+  {
+    id: "kurta-showcase",
+    label: "Kurta Showcase (Men)",
+    vertical: "fashion",
+    prompt:
+      "A male model wears this kurta and walks confidently toward the camera, then turns to show the outfit, full-body shot, static camera, clean studio backdrop",
+    durationSec: 10,
+    aspect: "9:16",
+    photoHint: "Add photos of the kurtas",
+    musicPrompt: "Upbeat Indian fusion with dhol, confident",
+    gender: "man",
+  },
+  {
+    id: "sherwani-wedding",
+    label: "Sherwani / Wedding (Men)",
+    vertical: "fashion",
+    prompt:
+      "A groom wears this sherwani, stands tall, gives a warm namaste with a slight bow, then turns slowly to show the embroidery, full-body shot, warm festive studio light",
+    durationSec: 10,
+    aspect: "9:16",
+    photoHint: "Add a photo of the sherwani",
+    musicPrompt: "Grand shehnai and dhol, wedding celebration",
+    gender: "man",
+  },
+  {
+    id: "formal-menswear",
+    label: "Formal / Office Wear (Men)",
+    vertical: "fashion",
+    prompt:
+      "A male model in this formal outfit adjusts his cuff, slides a hand into his pocket and looks at the camera with quiet confidence, full-body shot, minimal grey studio",
+    durationSec: 5,
+    aspect: "9:16",
+    photoHint: "Add a photo of the shirt, suit or blazer",
+    musicPrompt: "Smooth, modern corporate lounge",
+    gender: "man",
   },
   {
     id: "outfit-twirl",

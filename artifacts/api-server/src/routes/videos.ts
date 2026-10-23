@@ -12698,6 +12698,9 @@ async function generateVideoHandler(
           : 1,
     // Showcase reel timing. Only meaningful for photo clips and slideshows.
     ...(body.engine === "image_to_video" && body.photoClips ? { photoClips: true } : {}),
+    ...(body.engine === "image_to_video" && body.photoClips && body.modelGender
+      ? { modelGender: body.modelGender }
+      : {}),
     beatSec:
       (body.engine === "slideshow" || body.photoClips) && body.beatSec ? body.beatSec : null,
     musicStartSec:

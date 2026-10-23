@@ -44,6 +44,7 @@ import {
   QUICK_CREATE_PRESETS,
   QUICK_CREATE_VERTICALS,
   buildQuickCreatePrompt,
+  presetGender,
   quickCreateEngine,
   QUICK_CREATE_NO_TEXT,
   quickCreateDefaultModel,
@@ -108,6 +109,7 @@ export function QuickCreatePage() {
     description,
     photo,
     photoRole,
+    gender,
     dressed,
     durationSec,
     aspect,
@@ -201,11 +203,17 @@ export function QuickCreatePage() {
   const [handoffFiles, setHandoffFiles] = useState<File[] | null>(null);
   const applyPreset = (next: QuickCreatePreset) => {
     // A showcase shows several outfits, so it opens the Showcase reel.
+    const nextGender = presetGender(next);
     if (/showcase/i.test(`${next.id} ${next.label}`)) {
       updateDraft((d) => ({
         ...d,
         mode: "reel",
-        reel: { ...d.reel, motion: next.prompt, shape: next.aspect },
+        reel: {
+          ...d.reel,
+          motion: next.prompt,
+          shape: next.aspect,
+          ...(nextGender ? { gender: nextGender } : {}),
+        },
       }));
       toast({
         title: "Showcase reel",
@@ -219,6 +227,7 @@ export function QuickCreatePage() {
       durationSec: next.durationSec,
       aspect: next.aspect,
       musicPrompt: next.musicPrompt ?? "",
+      ...(nextGender ? { gender: nextGender, dressed: null } : {}),
     });
   };
 
@@ -318,7 +327,7 @@ export function QuickCreatePage() {
                   : aspect === "1:1"
                     ? "1024x1024"
                     : "1024x1536",
-              tryOn: { outfitImagePath: photo.objectPath },
+              tryOn: { outfitImagePath: photo.objectPath, gender },
             },
           });
           startFrame = image.imagePath;
@@ -545,6 +554,33 @@ export function QuickCreatePage() {
                     >
                       Animate this photo as is
                     </Chip>
+                  </div>
+                )}
+                {photo && photoRole === "model" && (
+                  <div
+                    className="flex flex-wrap items-center gap-2"
+                    role="radiogroup"
+                    aria-label="Who models it"
+                  >
+                    <span className="text-sm font-semibold text-muted-foreground">Model</span>
+                    {(
+                      [
+                        ["woman", "Woman"],
+                        ["man", "Man"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <Chip
+                        key={value}
+                        active={gender === value}
+                        // A different model means a new look on the next Generate.
+                        onClick={() =>
+                          gender !== value && updateSingle({ gender: value, dressed: null })
+                        }
+                        testId={`qc-gender-${value}`}
+                      >
+                        {label}
+                      </Chip>
+                    ))}
                   </div>
                 )}
                 {photo ? (

@@ -5360,6 +5360,18 @@ export const ImageRequestSize = {
 } as const;
 
 /**
+ * Who models the outfit when no model photo is given. Ignored when a model photo sets the person.
+ * @nullable
+ */
+export type ImageRequestTryOnGender = typeof ImageRequestTryOnGender[keyof typeof ImageRequestTryOnGender] | null;
+
+
+export const ImageRequestTryOnGender = {
+  woman: 'woman',
+  man: 'man',
+} as const;
+
+/**
  * Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.
  * @nullable
  */
@@ -5371,6 +5383,11 @@ export type ImageRequestTryOn = {
      * @nullable
      */
   modelImagePath?: string | null;
+  /**
+     * Who models the outfit when no model photo is given. Ignored when a model photo sets the person.
+     * @nullable
+     */
+  gender?: ImageRequestTryOnGender;
 } | null;
 
 export type LayerPlanLayerRole = typeof LayerPlanLayerRole[keyof typeof LayerPlanLayerRole];
@@ -9428,6 +9445,18 @@ export const VideoGenerateRequestVisualsSource = {
 } as const;
 
 /**
+ * Showcase reel: who models the looks, so each clip's move fits (a twirl for women's wear, a confident walk for men's wear).
+ * @nullable
+ */
+export type VideoGenerateRequestModelGender = typeof VideoGenerateRequestModelGender[keyof typeof VideoGenerateRequestModelGender] | null;
+
+
+export const VideoGenerateRequestModelGender = {
+  woman: 'woman',
+  man: 'man',
+} as const;
+
+/**
  * topic_to_video "ai"/"character" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide "plan" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan's flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.
  * @nullable
  */
@@ -9651,6 +9680,11 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /**
+     * Showcase reel: who models the looks, so each clip's move fits (a twirl for women's wear, a confident walk for men's wear).
+     * @nullable
+     */
+  modelGender?: VideoGenerateRequestModelGender;
   /** Showcase reel (image_to_video only): animate each of 2-6 source images as its own clip, in order, joined into one video. Each clip is a separate generation and is priced as such. */
   photoClips?: boolean;
   /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barAlignedSec, MAX_REEL_CLIPS } from "./clipStoryboard";
+import { barAlignedSec, MAX_REEL_CLIPS, reelLookPrompt } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
 
 describe("showcase reel timing and pricing", () => {
@@ -17,5 +17,14 @@ describe("showcase reel timing and pricing", () => {
     expect(videoJobUnits("image_to_video", { aspectRatio: "9:16", photoClips: true, shotCount: 4 } as never)).toBe(4);
     expect(videoJobUnits("image_to_video", { aspectRatio: "9:16", shotCount: 4 } as never)).toBe(1);
     expect(MAX_REEL_CLIPS).toBe(6);
+  });
+
+  it("gives men's wear its own moves, never a twirl or a hem lift", () => {
+    const men = Array.from({ length: 6 }, (_, i) => reelLookPrompt("Walks", i, "man"));
+    expect(men.every((p) => p.startsWith("Walks") && p.includes("He ") && p.includes("his full body"))).toBe(true);
+    expect(men.some((p) => /twirl|hem|She /.test(p))).toBe(false);
+    expect(new Set(men).size).toBe(6);
+    expect(reelLookPrompt("", 0, "woman")).toContain("twirl");
+    expect(reelLookPrompt("", 0)).toContain("her full body");
   });
 });

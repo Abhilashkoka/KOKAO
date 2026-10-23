@@ -20097,6 +20097,12 @@ components:
             modelImagePath:
               type: ["string", "null"]
               maxLength: 500
+            gender:
+              type: ["string", "null"]
+              enum: [woman, man, null]
+              description: >-
+                Who models the outfit when no model photo is given. Ignored
+                when a model photo sets the person.
         referenceImagePath:
           type: ["string", "null"]
           description: >-
@@ -22634,6 +22640,12 @@ components:
           description: >-
             topic_to_video character mode; costume-change instructions
             (e.g. "switch to gym wear for the workout scenes").
+        modelGender:
+          type: ["string", "null"]
+          enum: [woman, man, null]
+          description: >-
+            Showcase reel: who models the looks, so each clip's move fits
+            (a twirl for women's wear, a confident walk for men's wear).
         photoClips:
           type: boolean
           description: >-

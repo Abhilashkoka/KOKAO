@@ -43,14 +43,24 @@ export async function buildTryOnReference(
  * provider, not the user: it says which half of the sheet is identity and
  * which is wardrobe, and forbids copying text or mannequins.
  */
-export function tryOnInstruction(hasModel: boolean, scene: string): string {
+export function tryOnInstruction(
+  hasModel: boolean,
+  scene: string,
+  gender: "woman" | "man" | null = null,
+): string {
+  const who =
+    gender === "man"
+      ? "a professional Indian male model"
+      : gender === "woman"
+        ? "a professional Indian female model"
+        : "a professional Indian model";
   const parts = hasModel
     ? [
         "The reference sheet has two parts: on the LEFT is the model, on the RIGHT is an outfit or product.",
         "Create one new photorealistic full-length photo of the SAME person from the left (same face, hair, skin tone and body) wearing exactly the outfit from the right.",
       ]
     : [
-        "Create a photorealistic full-length fashion photo of a professional Indian model wearing exactly the outfit, or holding exactly the product, shown in the reference image.",
+        `Create a photorealistic full-length fashion photo of ${who} wearing exactly the outfit, or holding exactly the product, shown in the reference image.`,
       ];
   parts.push(
     "Keep the outfit's colours, print, pattern, border, cut and fabric identical to the reference.",

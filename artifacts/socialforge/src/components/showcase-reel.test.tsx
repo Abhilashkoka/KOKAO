@@ -56,11 +56,13 @@ async function addTwoDressedLooks(first = 1) {
   expect(generateImage.mock.calls[0][0].data.tryOn).toEqual({
     outfitImagePath: `/objects/uploads/${first}`,
     modelImagePath: null,
+    gender: "woman",
   });
   await waitFor(() => expect(generateImage).toHaveBeenCalledTimes(2));
   expect(generateImage.mock.calls[1][0].data.tryOn).toEqual({
     outfitImagePath: `/objects/uploads/${first + 1}`,
     modelImagePath: "/objects/generated/a",
+    gender: "woman",
   });
   await waitFor(() => expect(screen.getByTestId("reel-dressed-1")).toBeTruthy());
 }
@@ -106,6 +108,7 @@ describe("Showcase reel", () => {
       musicPath: "/objects/uploads/1",
       reviewStoryboard: false,
       generateAudio: false,
+      modelGender: "woman",
     });
     expect(data.prompt).toContain("No on-screen text");
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/results?job=42"));

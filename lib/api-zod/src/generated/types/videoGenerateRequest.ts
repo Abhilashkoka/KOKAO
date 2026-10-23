@@ -15,6 +15,7 @@ import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspe
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
 import type { VideoGenerateRequestLipSyncQuality } from './videoGenerateRequestLipSyncQuality';
+import type { VideoGenerateRequestModelGender } from './videoGenerateRequestModelGender';
 import type { VideoGenerateRequestPlanSource } from './videoGenerateRequestPlanSource';
 import type { VideoGenerateRequestQuality } from './videoGenerateRequestQuality';
 import type { VideoGenerateRequestResolution } from './videoGenerateRequestResolution';
@@ -224,6 +225,11 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /**
+     * Showcase reel: who models the looks, so each clip's move fits (a twirl for women's wear, a confident walk for men's wear).
+     * @nullable
+     */
+  modelGender?: VideoGenerateRequestModelGender;
   /** Showcase reel (image_to_video only): animate each of 2-6 source images as its own clip, in order, joined into one video. Each clip is a separate generation and is priced as such. */
   photoClips?: boolean;
   /**

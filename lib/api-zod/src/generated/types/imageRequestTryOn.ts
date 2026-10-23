@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ImageRequestTryOnGender } from './imageRequestTryOnGender';
 
 /**
  * Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.
@@ -18,4 +19,9 @@ export type ImageRequestTryOn = {
      * @nullable
      */
   modelImagePath?: string | null;
+  /**
+     * Who models the outfit when no model photo is given. Ignored when a model photo sets the person.
+     * @nullable
+     */
+  gender?: ImageRequestTryOnGender;
 } | null;

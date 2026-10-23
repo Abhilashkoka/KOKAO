@@ -959,6 +959,8 @@ export interface VideoJobOptions {
    * order, joined into one video. shotCount equals the image count and prices
    * the job. */
   photoClips?: boolean;
+  /** Showcase reel: who models the looks; picks a fitting move set. */
+  modelGender?: "woman" | "man" | null;
   /** Reel timing: seconds per bar of the uploaded track. Each clip/slide is cut
    * to a whole number of bars so the cuts land on the music. */
   beatSec?: number | null;

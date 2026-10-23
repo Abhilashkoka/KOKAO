@@ -35,5 +35,8 @@ describe("try-on reference", () => {
     expect(tryOnInstruction(true, "sways")).toContain("SAME person from the left");
     expect(tryOnInstruction(false, "")).not.toContain("left");
     expect(tryOnInstruction(false, "")).toContain("Do not copy any text");
+    expect(tryOnInstruction(false, "", "man")).toContain("male model");
+    expect(tryOnInstruction(false, "", "woman")).toContain("female model");
+    expect(tryOnInstruction(false, "")).toContain("a professional Indian model");
   });
 });

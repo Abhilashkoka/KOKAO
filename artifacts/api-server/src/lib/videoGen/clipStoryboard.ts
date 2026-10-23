@@ -97,13 +97,30 @@ export const REEL_MOVES = [
   "She does a playful little spin and settles into a graceful pose, smiling.",
 ] as const;
 
-const REEL_STYLE =
-  "Smooth, natural, rhythmic movement in time with the music. Static camera, her full body stays in frame the whole time, same plain studio backdrop and lighting. The outfit keeps its exact colours and pattern.";
+/** Men's wear: confident, grounded moves (no twirls or hem lifts). */
+export const REEL_MOVES_MEN = [
+  "He walks confidently toward the camera on the beat, then stops in a relaxed, assured stance.",
+  "He turns slowly to show the side and back of the outfit, then faces the camera with a slight smile.",
+  "He adjusts his cuff, then his collar, and looks up at the camera with quiet confidence.",
+  "He slides one hand into his pocket and shifts his weight in a relaxed, stylish pose.",
+  "He gives a warm namaste with a slight bow, then straightens into a proud pose.",
+  "He takes a few easy steps to the side, glances over his shoulder, and turns back to the camera.",
+] as const;
 
-/** The prompt for look `index` of a showcase reel. */
-export function reelLookPrompt(userMotion: string, index: number): string {
-  const move = REEL_MOVES[index % REEL_MOVES.length];
-  return [userMotion, move, REEL_STYLE].filter(Boolean).join(" ");
+const REEL_STYLE_FOR = (who: "her" | "his") =>
+  `Smooth, natural, rhythmic movement in time with the music. Static camera, ${who} full body stays in frame the whole time, same plain studio backdrop and lighting. The outfit keeps its exact colours and pattern.`;
+
+/** The prompt for look `index` of a showcase reel, with moves that fit who models it. */
+export function reelLookPrompt(
+  userMotion: string,
+  index: number,
+  gender: "woman" | "man" | null = null,
+): string {
+  const moves = gender === "man" ? REEL_MOVES_MEN : REEL_MOVES;
+  const move = moves[index % moves.length];
+  return [userMotion, move, REEL_STYLE_FOR(gender === "man" ? "his" : "her")]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /**
@@ -529,7 +546,7 @@ export async function planClipStoryboard(
         visual:
           source === "photo"
             ? options.photoClips
-              ? reelLookPrompt((job.prompt ?? "").trim(), i)
+              ? reelLookPrompt((job.prompt ?? "").trim(), i, options.modelGender ?? null)
               : (job.prompt ?? "").trim()
             : "",
         durationSec: perScene,

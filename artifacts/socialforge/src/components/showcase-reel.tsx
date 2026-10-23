@@ -109,7 +109,7 @@ export function ShowcaseReel({
   const generateVideo = useGenerateVideo();
 
   // State lives in the Create draft store, so it survives leaving the page.
-  const { model, looks, music, style, bars, shape, motion, starting } =
+  const { model, gender, looks, music, style, bars, shape, motion, starting } =
     useCreateDraft().reel;
   const [analyzing, setAnalyzing] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -303,7 +303,11 @@ export function ShowcaseReel({
         data: {
           prompt: scene,
           size: sizeFor(size),
-          tryOn: { outfitImagePath: look.outfit.objectPath, modelImagePath: face },
+          tryOn: {
+            outfitImagePath: look.outfit.objectPath,
+            modelImagePath: face,
+            gender: getDraft().reel.gender,
+          },
         },
       });
       setLooks((prev) =>
@@ -398,6 +402,7 @@ export function ShowcaseReel({
             ...common,
             engine: "image_to_video" as const,
             photoClips: true,
+            modelGender: gender,
             prompt: `${motion.trim()}. No on-screen text, captions, logos or watermarks.`,
             durationSec: timing.clipSec,
             // The reel's sound is the chosen track only: per-clip AI audio
@@ -465,6 +470,33 @@ export function ShowcaseReel({
                   ? "Every look uses this person."
                   : "No photo: an AI model is created from your first look."}
               </p>
+              <div className="flex items-center gap-2" role="radiogroup" aria-label="Who models it">
+                {(
+                  [
+                    ["woman", "Woman"],
+                    ["man", "Man"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Chip
+                    key={value}
+                    active={gender === value}
+                    onClick={() => {
+                      if (gender === value) return;
+                      // Without a model photo the dressed looks show the
+                      // other gender, so they are dressed again.
+                      updateReel((r) => ({
+                        gender: value,
+                        looks: r.model
+                          ? r.looks
+                          : r.looks.map((l) => ({ ...l, dressed: null })),
+                      }));
+                    }}
+                    testId={`reel-gender-${value}`}
+                  >
+                    {label}
+                  </Chip>
+                ))}
+              </div>
               <div className="flex gap-2">
                 <Button
                   size="sm"

@@ -63,7 +63,7 @@ describe("Quick Create try-on", () => {
     await waitFor(() => expect(generateVideo).toHaveBeenCalledTimes(1));
     expect(generateImage).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        tryOn: { outfitImagePath: "/objects/uploads/outfit" },
+        tryOn: { outfitImagePath: "/objects/uploads/outfit", gender: "woman" },
         size: "1024x1536",
       }),
     });
@@ -133,5 +133,25 @@ describe("Quick Create try-on", () => {
     });
     await waitFor(() => expect(screen.getByTestId("reel-look-2")).toBeTruthy());
     expect(screen.queryByTestId("reel-look-3")).toBeNull();
+  });
+
+  it("dresses a male model when Man is picked", async () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId("qc-description"), { target: { value: "Walks in" } });
+    await uploadOutfit();
+    fireEvent.click(screen.getByTestId("qc-gender-man"));
+    fireEvent.click(screen.getByTestId("qc-generate"));
+    await waitFor(() => expect(generateImage).toHaveBeenCalled());
+    expect(generateImage.mock.calls[0][0].data.tryOn).toEqual({
+      outfitImagePath: "/objects/uploads/outfit",
+      gender: "man",
+    });
+  });
+
+  it("a men's showcase template opens the reel with a male model", async () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId("qc-preset-kurta-showcase"));
+    await waitFor(() => expect(screen.getByTestId("showcase-reel")).toBeTruthy());
+    expect(screen.getByTestId("reel-gender-man").getAttribute("aria-pressed")).toBe("true");
   });
 });

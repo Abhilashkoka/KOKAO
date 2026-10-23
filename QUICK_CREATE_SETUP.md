@@ -88,3 +88,9 @@ bash scripts/kokao-update.sh --no-pull  # restart only (e.g. after the workspace
 ```
 
 The API log is at `/tmp/api.log`.
+
+## Men's wear
+
+- **Model: Woman / Man** appears in single videos (when the photo is put on a model) and in the Showcase reel. It sets the AI model's gender when no model photo is given.
+- Reels made with **Man** use men's moves: a confident walk, a slow turn, adjusting the cuff or collar, a hand-in-pocket pose, a namaste, a glance over the shoulder.
+- New templates: **Kurta Showcase (Men)**, which opens the reel, plus **Sherwani / Wedding (Men)** and **Formal / Office Wear (Men)**. Admin templates whose name mentions men, groom or sherwani pick Man automatically.
