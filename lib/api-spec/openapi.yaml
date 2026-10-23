@@ -20103,6 +20103,12 @@ components:
               description: >-
                 Who models the outfit when no model photo is given. Ignored
                 when a model photo sets the person.
+            style:
+              type: ["string", "null"]
+              enum: [ethnic, formal, casual, null]
+              description: >-
+                Kind of outfit: sets the backdrop (festive studio, minimal
+                studio, or an outdoor lifestyle setting).
         referenceImagePath:
           type: ["string", "null"]
           description: >-
@@ -22640,6 +22646,12 @@ components:
           description: >-
             topic_to_video character mode; costume-change instructions
             (e.g. "switch to gym wear for the workout scenes").
+        wearStyle:
+          type: ["string", "null"]
+          enum: [ethnic, formal, casual, null]
+          description: >-
+            Showcase reel: the kind of outfits, so each clip's move fits
+            (ethnic, formal or casual).
         modelGender:
           type: ["string", "null"]
           enum: [woman, man, null]

@@ -45,6 +45,8 @@ import {
   QUICK_CREATE_VERTICALS,
   buildQuickCreatePrompt,
   presetGender,
+  presetWearStyle,
+  WEAR_STYLES,
   quickCreateEngine,
   QUICK_CREATE_NO_TEXT,
   quickCreateDefaultModel,
@@ -110,6 +112,7 @@ export function QuickCreatePage() {
     photo,
     photoRole,
     gender,
+    wearStyle,
     dressed,
     durationSec,
     aspect,
@@ -204,6 +207,7 @@ export function QuickCreatePage() {
   const applyPreset = (next: QuickCreatePreset) => {
     // A showcase shows several outfits, so it opens the Showcase reel.
     const nextGender = presetGender(next);
+    const nextWear = presetWearStyle(next);
     if (/showcase/i.test(`${next.id} ${next.label}`)) {
       updateDraft((d) => ({
         ...d,
@@ -213,6 +217,7 @@ export function QuickCreatePage() {
           motion: next.prompt,
           shape: next.aspect,
           ...(nextGender ? { gender: nextGender } : {}),
+          ...(nextWear ? { wearStyle: nextWear } : {}),
         },
       }));
       toast({
@@ -228,6 +233,7 @@ export function QuickCreatePage() {
       aspect: next.aspect,
       musicPrompt: next.musicPrompt ?? "",
       ...(nextGender ? { gender: nextGender, dressed: null } : {}),
+      ...(nextWear ? { wearStyle: nextWear, dressed: null } : {}),
     });
   };
 
@@ -327,7 +333,7 @@ export function QuickCreatePage() {
                   : aspect === "1:1"
                     ? "1024x1024"
                     : "1024x1536",
-              tryOn: { outfitImagePath: photo.objectPath, gender },
+              tryOn: { outfitImagePath: photo.objectPath, gender, style: wearStyle },
             },
           });
           startFrame = image.imagePath;
@@ -579,6 +585,19 @@ export function QuickCreatePage() {
                         testId={`qc-gender-${value}`}
                       >
                         {label}
+                      </Chip>
+                    ))}
+                    <span className="ml-2 text-sm font-semibold text-muted-foreground">Style</span>
+                    {WEAR_STYLES.map((w) => (
+                      <Chip
+                        key={w.id}
+                        active={wearStyle === w.id}
+                        onClick={() =>
+                          wearStyle !== w.id && updateSingle({ wearStyle: w.id, dressed: null })
+                        }
+                        testId={`qc-wear-${w.id}`}
+                      >
+                        {w.label}
                       </Chip>
                     ))}
                   </div>

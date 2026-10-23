@@ -94,3 +94,11 @@ The API log is at `/tmp/api.log`.
 - **Model: Woman / Man** appears in single videos (when the photo is put on a model) and in the Showcase reel. It sets the AI model's gender when no model photo is given.
 - Reels made with **Man** use men's moves: a confident walk, a slow turn, adjusting the cuff or collar, a hand-in-pocket pose, a namaste, a glance over the shoulder.
 - New templates: **Kurta Showcase (Men)**, which opens the reel, plus **Sherwani / Wedding (Men)** and **Formal / Office Wear (Men)**. Admin templates whose name mentions men, groom or sherwani pick Man automatically.
+
+## Ethnic, formal and casual wear
+
+- **Style: Ethnic / Formal / Casual** sits next to Model: Woman / Man.
+  - It sets the **backdrop** of each dressed look: a festive studio, a minimal grey studio, or an outdoor lifestyle scene (city street or cafe).
+  - In Video reels it also sets the **moves**. Each model and style has its own six moves, for example buttoning a jacket for formal wear or a relaxed walk for casual wear.
+- **Garment prints, graphics and logos are kept.** Only text that isn't part of the garment (shop signs, price tags, watermarks) is ignored.
+- New template: **Casual Showcase (Men)**. Templates mentioning suit, blazer or office pick Formal; jeans, tee or street pick Casual; saree, kurta or sherwani pick Ethnic.

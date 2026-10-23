@@ -31,6 +31,7 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { trackProjectEvent } from "@/lib/analytics";
 import { analyzeMusicFile, lookTiming } from "@/lib/beat";
+import { WEAR_STYLES } from "@/lib/quick-create-presets";
 import {
   getDraft,
   previewOf,
@@ -109,7 +110,7 @@ export function ShowcaseReel({
   const generateVideo = useGenerateVideo();
 
   // State lives in the Create draft store, so it survives leaving the page.
-  const { model, gender, looks, music, style, bars, shape, motion, starting } =
+  const { model, gender, wearStyle, looks, music, style, bars, shape, motion, starting } =
     useCreateDraft().reel;
   const [analyzing, setAnalyzing] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -307,6 +308,7 @@ export function ShowcaseReel({
             outfitImagePath: look.outfit.objectPath,
             modelImagePath: face,
             gender: getDraft().reel.gender,
+            style: getDraft().reel.wearStyle,
           },
         },
       });
@@ -403,6 +405,7 @@ export function ShowcaseReel({
             engine: "image_to_video" as const,
             photoClips: true,
             modelGender: gender,
+            wearStyle,
             prompt: `${motion.trim()}. No on-screen text, captions, logos or watermarks.`,
             durationSec: timing.clipSec,
             // The reel's sound is the chosen track only: per-clip AI audio
@@ -494,6 +497,26 @@ export function ShowcaseReel({
                     testId={`reel-gender-${value}`}
                   >
                     {label}
+                  </Chip>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Kind of outfits">
+                {WEAR_STYLES.map((w) => (
+                  <Chip
+                    key={w.id}
+                    active={wearStyle === w.id}
+                    onClick={() => {
+                      if (wearStyle === w.id) return;
+                      // The backdrop is part of each dressed photo, so a new
+                      // style means the looks are dressed again.
+                      updateReel((r) => ({
+                        wearStyle: w.id,
+                        looks: r.looks.map((l) => ({ ...l, dressed: null })),
+                      }));
+                    }}
+                    testId={`reel-wear-${w.id}`}
+                  >
+                    {w.label}
                   </Chip>
                 ))}
               </div>

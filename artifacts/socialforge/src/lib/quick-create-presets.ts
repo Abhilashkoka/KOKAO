@@ -23,9 +23,30 @@ export interface QuickCreatePreset {
   musicPrompt?: string;
   /** Who models the outfit when no model photo is given. */
   gender?: ModelGender;
+  /** Kind of outfit: sets the backdrop and, in a reel, the moves. */
+  wearStyle?: WearStyle;
 }
 
 export type ModelGender = "woman" | "man";
+export type WearStyle = "ethnic" | "formal" | "casual";
+
+export const WEAR_STYLES: { id: WearStyle; label: string }[] = [
+  { id: "ethnic", label: "Ethnic" },
+  { id: "formal", label: "Formal" },
+  { id: "casual", label: "Casual" },
+];
+
+/** Same idea as presetGender: read the kind of outfit from the template. */
+export function presetWearStyle(
+  preset: Pick<QuickCreatePreset, "label" | "prompt" | "wearStyle">,
+): WearStyle | null {
+  if (preset.wearStyle) return preset.wearStyle;
+  const text = `${preset.label} ${preset.prompt}`.toLowerCase();
+  if (/\b(suit|blazer|formal|office|corporate|tuxedo|trousers)\b/.test(text)) return "formal";
+  if (/\b(casual|jeans|t-?shirt|tee|hoodie|street|denim|sneakers)\b/.test(text)) return "casual";
+  if (/\b(saree|kurta|sherwani|lehenga|ethnic|salwar|anarkali|dhoti|wedding|festive)\b/.test(text)) return "ethnic";
+  return null;
+}
 
 /**
  * Admin-made templates carry no gender field, so read it from the name:
@@ -60,6 +81,7 @@ export const QUICK_CREATE_PRESETS: QuickCreatePreset[] = [
     photoHint: "Add a photo of the saree",
     musicPrompt: "Soft Indian sitar and tabla, gentle and festive",
     gender: "woman",
+    wearStyle: "ethnic",
   },
   {
     id: "kurta-showcase",
@@ -72,6 +94,7 @@ export const QUICK_CREATE_PRESETS: QuickCreatePreset[] = [
     photoHint: "Add photos of the kurtas",
     musicPrompt: "Upbeat Indian fusion with dhol, confident",
     gender: "man",
+    wearStyle: "ethnic",
   },
   {
     id: "sherwani-wedding",
@@ -84,6 +107,7 @@ export const QUICK_CREATE_PRESETS: QuickCreatePreset[] = [
     photoHint: "Add a photo of the sherwani",
     musicPrompt: "Grand shehnai and dhol, wedding celebration",
     gender: "man",
+    wearStyle: "ethnic",
   },
   {
     id: "formal-menswear",
@@ -96,6 +120,20 @@ export const QUICK_CREATE_PRESETS: QuickCreatePreset[] = [
     photoHint: "Add a photo of the shirt, suit or blazer",
     musicPrompt: "Smooth, modern corporate lounge",
     gender: "man",
+    wearStyle: "formal",
+  },
+  {
+    id: "casual-showcase-men",
+    label: "Casual Showcase (Men)",
+    vertical: "fashion",
+    prompt:
+      "A male model in this casual outfit walks with an easy stride, smiles and relaxes into a natural pose, full-body shot, sunny street setting",
+    durationSec: 10,
+    aspect: "9:16",
+    photoHint: "Add photos of the jeans, tees or jackets",
+    musicPrompt: "Upbeat indie pop, feel-good",
+    gender: "man",
+    wearStyle: "casual",
   },
   {
     id: "outfit-twirl",

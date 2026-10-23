@@ -34,7 +34,12 @@ describe("try-on reference", () => {
   it("says which half is the person and forbids copying text", () => {
     expect(tryOnInstruction(true, "sways")).toContain("SAME person from the left");
     expect(tryOnInstruction(false, "")).not.toContain("left");
-    expect(tryOnInstruction(false, "")).toContain("Do not copy any text");
+    expect(tryOnInstruction(false, "")).toContain("Do not copy anything that is not part of the garment");
+    // The garment's own print and logo are kept.
+    expect(tryOnInstruction(false, "")).toContain("logo or lettering that is printed or stitched on the garment");
+    expect(tryOnInstruction(false, "", null, "casual")).toContain("city street");
+    expect(tryOnInstruction(false, "", null, "formal")).toContain("light-grey backdrop");
+    expect(tryOnInstruction(false, "", null, "ethnic")).toContain("festive studio");
     expect(tryOnInstruction(false, "", "man")).toContain("male model");
     expect(tryOnInstruction(false, "", "woman")).toContain("female model");
     expect(tryOnInstruction(false, "")).toContain("a professional Indian model");

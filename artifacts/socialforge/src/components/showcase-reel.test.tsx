@@ -57,12 +57,14 @@ async function addTwoDressedLooks(first = 1) {
     outfitImagePath: `/objects/uploads/${first}`,
     modelImagePath: null,
     gender: "woman",
+    style: "ethnic",
   });
   await waitFor(() => expect(generateImage).toHaveBeenCalledTimes(2));
   expect(generateImage.mock.calls[1][0].data.tryOn).toEqual({
     outfitImagePath: `/objects/uploads/${first + 1}`,
     modelImagePath: "/objects/generated/a",
     gender: "woman",
+    style: "ethnic",
   });
   await waitFor(() => expect(screen.getByTestId("reel-dressed-1")).toBeTruthy());
 }
@@ -109,6 +111,7 @@ describe("Showcase reel", () => {
       reviewStoryboard: false,
       generateAudio: false,
       modelGender: "woman",
+      wearStyle: "ethnic",
     });
     expect(data.prompt).toContain("No on-screen text");
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/results?job=42"));

@@ -5372,6 +5372,19 @@ export const ImageRequestTryOnGender = {
 } as const;
 
 /**
+ * Kind of outfit: sets the backdrop (festive studio, minimal studio, or an outdoor lifestyle setting).
+ * @nullable
+ */
+export type ImageRequestTryOnStyle = typeof ImageRequestTryOnStyle[keyof typeof ImageRequestTryOnStyle] | null;
+
+
+export const ImageRequestTryOnStyle = {
+  ethnic: 'ethnic',
+  formal: 'formal',
+  casual: 'casual',
+} as const;
+
+/**
  * Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.
  * @nullable
  */
@@ -5388,6 +5401,11 @@ export type ImageRequestTryOn = {
      * @nullable
      */
   gender?: ImageRequestTryOnGender;
+  /**
+     * Kind of outfit: sets the backdrop (festive studio, minimal studio, or an outdoor lifestyle setting).
+     * @nullable
+     */
+  style?: ImageRequestTryOnStyle;
 } | null;
 
 export type LayerPlanLayerRole = typeof LayerPlanLayerRole[keyof typeof LayerPlanLayerRole];
@@ -9445,6 +9463,19 @@ export const VideoGenerateRequestVisualsSource = {
 } as const;
 
 /**
+ * Showcase reel: the kind of outfits, so each clip's move fits (ethnic, formal or casual).
+ * @nullable
+ */
+export type VideoGenerateRequestWearStyle = typeof VideoGenerateRequestWearStyle[keyof typeof VideoGenerateRequestWearStyle] | null;
+
+
+export const VideoGenerateRequestWearStyle = {
+  ethnic: 'ethnic',
+  formal: 'formal',
+  casual: 'casual',
+} as const;
+
+/**
  * Showcase reel: who models the looks, so each clip's move fits (a twirl for women's wear, a confident walk for men's wear).
  * @nullable
  */
@@ -9680,6 +9711,11 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /**
+     * Showcase reel: the kind of outfits, so each clip's move fits (ethnic, formal or casual).
+     * @nullable
+     */
+  wearStyle?: VideoGenerateRequestWearStyle;
   /**
      * Showcase reel: who models the looks, so each clip's move fits (a twirl for women's wear, a confident walk for men's wear).
      * @nullable

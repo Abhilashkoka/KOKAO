@@ -88,35 +88,80 @@ export const MAX_REEL_CLIPS = 6;
  * rather than the same sway six times. Gentle, fashion-show moves that a video
  * model renders cleanly from a full-length studio photo.
  */
-export const REEL_MOVES = [
-  "She does a slow, graceful twirl so the outfit flares out, then ends facing the camera with a smile.",
-  "She takes two elegant steps toward the camera on the beat, then turns to show the side of the outfit.",
-  "She moves rhythmically to the music with light, graceful hand gestures, then does a half turn to show the back.",
-  "She lightly lifts the fabric at the hem and does a small, joyful dance step.",
-  "She turns slowly from side to side to show the whole outfit, then strikes a confident pose.",
-  "She does a playful little spin and settles into a graceful pose, smiling.",
-] as const;
+type ReelGender = "woman" | "man";
+type ReelWear = "ethnic" | "formal" | "casual";
 
-/** Men's wear: confident, grounded moves (no twirls or hem lifts). */
-export const REEL_MOVES_MEN = [
-  "He walks confidently toward the camera on the beat, then stops in a relaxed, assured stance.",
-  "He turns slowly to show the side and back of the outfit, then faces the camera with a slight smile.",
-  "He adjusts his cuff, then his collar, and looks up at the camera with quiet confidence.",
-  "He slides one hand into his pocket and shifts his weight in a relaxed, stylish pose.",
-  "He gives a warm namaste with a slight bow, then straightens into a proud pose.",
-  "He takes a few easy steps to the side, glances over his shoulder, and turns back to the camera.",
-] as const;
+/** Six moves per model and kind of outfit, used in order across the looks. */
+export const REEL_MOVE_SETS: Record<ReelGender, Record<ReelWear, readonly string[]>> = {
+  woman: {
+    ethnic: [
+      "She does a slow, graceful twirl so the outfit flares out, then ends facing the camera with a smile.",
+      "She takes two elegant steps toward the camera on the beat, then turns to show the side of the outfit.",
+      "She moves rhythmically to the music with light, graceful hand gestures, then does a half turn to show the back.",
+      "She lightly lifts the fabric at the hem and does a small, joyful dance step.",
+      "She turns slowly from side to side to show the whole outfit, then strikes a confident pose.",
+      "She does a playful little spin and settles into a graceful pose, smiling.",
+    ],
+    formal: [
+      "She walks toward the camera with a poised runway stride, then stops in a composed stance.",
+      "She turns to show the side profile of the outfit, then faces the camera with a confident smile.",
+      "She adjusts her sleeve, then looks up at the camera with quiet confidence.",
+      "She places one hand on her hip in a polished, professional pose.",
+      "She takes a few measured steps to the side and turns back with an assured glance.",
+      "She smooths the front of the outfit and settles into an elegant standing pose.",
+    ],
+    casual: [
+      "She walks toward the camera with an easy, carefree stride, smiling.",
+      "She laughs naturally and tucks her hair behind her ear.",
+      "She does a playful half spin and looks back over her shoulder.",
+      "She leans casually to one side in a relaxed, cheerful pose.",
+      "She sways to the music with loose, fun movements.",
+      "She turns to show the back of the outfit, then grins at the camera.",
+    ],
+  },
+  man: {
+    ethnic: [
+      "He walks confidently toward the camera on the beat, then stops in a proud, upright stance.",
+      "He turns slowly to show the side and back of the outfit and its detailing, then faces the camera.",
+      "He gives a warm namaste with a slight bow, then straightens into a proud pose.",
+      "He clasps his hands behind his back and stands tall with a gentle smile.",
+      "He adjusts his sleeve and looks up at the camera with quiet confidence.",
+      "He takes a few easy steps to the side, glances over his shoulder, and turns back to the camera.",
+    ],
+    formal: [
+      "He walks confidently toward the camera, then stops in a sharp, assured stance.",
+      "He buttons his jacket and looks straight at the camera.",
+      "He adjusts his cuff, then his collar, with quiet confidence.",
+      "He slides one hand into his pocket and shifts his weight in a relaxed, stylish pose.",
+      "He turns slowly to show the side and back of the outfit, then faces the camera with a slight smile.",
+      "He takes a few measured steps to the side and glances over his shoulder.",
+    ],
+    casual: [
+      "He walks toward the camera with a relaxed, easy stride, smiling.",
+      "He laughs naturally and runs a hand through his hair.",
+      "He leans back casually with his hands in his pockets.",
+      "He nods along to the music with a small, rhythmic bounce.",
+      "He turns to show the back of the outfit, then looks back over his shoulder with a grin.",
+      "He takes a few easy steps to the side and turns back with a friendly smile.",
+    ],
+  },
+};
+
+/** Back-compat names: the original women's and men's sets. */
+export const REEL_MOVES = REEL_MOVE_SETS.woman.ethnic;
+export const REEL_MOVES_MEN = REEL_MOVE_SETS.man.formal;
 
 const REEL_STYLE_FOR = (who: "her" | "his") =>
-  `Smooth, natural, rhythmic movement in time with the music. Static camera, ${who} full body stays in frame the whole time, same plain studio backdrop and lighting. The outfit keeps its exact colours and pattern.`;
+  `Smooth, natural, rhythmic movement in time with the music. Static camera, ${who} full body stays in frame the whole time, same setting and lighting as the photo. The outfit keeps its exact colours and pattern.`;
 
 /** The prompt for look `index` of a showcase reel, with moves that fit who models it. */
 export function reelLookPrompt(
   userMotion: string,
   index: number,
   gender: "woman" | "man" | null = null,
+  wear: "ethnic" | "formal" | "casual" | null = null,
 ): string {
-  const moves = gender === "man" ? REEL_MOVES_MEN : REEL_MOVES;
+  const moves = REEL_MOVE_SETS[gender === "man" ? "man" : "woman"][wear ?? "ethnic"];
   const move = moves[index % moves.length];
   return [userMotion, move, REEL_STYLE_FOR(gender === "man" ? "his" : "her")]
     .filter(Boolean)
@@ -546,7 +591,12 @@ export async function planClipStoryboard(
         visual:
           source === "photo"
             ? options.photoClips
-              ? reelLookPrompt((job.prompt ?? "").trim(), i, options.modelGender ?? null)
+              ? reelLookPrompt(
+                  (job.prompt ?? "").trim(),
+                  i,
+                  options.modelGender ?? null,
+                  options.wearStyle ?? null,
+                )
               : (job.prompt ?? "").trim()
             : "",
         durationSec: perScene,

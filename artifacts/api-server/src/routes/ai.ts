@@ -1631,7 +1631,12 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       // Try-on is a fixed, server-written instruction: no template, brand or
       // style rewrite may change what the reference sheet means.
       userPrompt: tryOn
-        ? tryOnInstruction(Boolean(tryOn.modelImagePath), parsed.data.prompt, tryOn.gender ?? null)
+        ? tryOnInstruction(
+            Boolean(tryOn.modelImagePath),
+            parsed.data.prompt,
+            tryOn.gender ?? null,
+            tryOn.style ?? null,
+          )
         : imageGoverned ? imageGoverned.text : compiledUserPrompt,
       ...(tryOn ? { exactPrompt: true, requireReferenceInput: true } : {}),
       size,

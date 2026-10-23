@@ -63,7 +63,7 @@ describe("Quick Create try-on", () => {
     await waitFor(() => expect(generateVideo).toHaveBeenCalledTimes(1));
     expect(generateImage).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        tryOn: { outfitImagePath: "/objects/uploads/outfit", gender: "woman" },
+        tryOn: { outfitImagePath: "/objects/uploads/outfit", gender: "woman", style: "ethnic" },
         size: "1024x1536",
       }),
     });
@@ -145,6 +145,7 @@ describe("Quick Create try-on", () => {
     expect(generateImage.mock.calls[0][0].data.tryOn).toEqual({
       outfitImagePath: "/objects/uploads/outfit",
       gender: "man",
+      style: "ethnic",
     });
   });
 
@@ -153,5 +154,23 @@ describe("Quick Create try-on", () => {
     fireEvent.click(screen.getByTestId("qc-preset-kurta-showcase"));
     await waitFor(() => expect(screen.getByTestId("showcase-reel")).toBeTruthy());
     expect(screen.getByTestId("reel-gender-man").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("sends the outfit style so casual wear gets a lifestyle backdrop", async () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId("qc-description"), { target: { value: "Walks" } });
+    await uploadOutfit();
+    fireEvent.click(screen.getByTestId("qc-wear-casual"));
+    fireEvent.click(screen.getByTestId("qc-generate"));
+    await waitFor(() => expect(generateImage).toHaveBeenCalled());
+    expect(generateImage.mock.calls[0][0].data.tryOn.style).toBe("casual");
+  });
+
+  it("the formal men's template picks Man and Formal", async () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId("qc-preset-formal-menswear"));
+    await uploadOutfit();
+    expect(screen.getByTestId("qc-gender-man").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("qc-wear-formal").getAttribute("aria-pressed")).toBe("true");
   });
 });

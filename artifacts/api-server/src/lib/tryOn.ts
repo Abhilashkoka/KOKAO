@@ -38,15 +38,29 @@ export async function buildTryOnReference(
   return { buffer, mimeType: "image/png" };
 }
 
+export type WearStyle = "ethnic" | "formal" | "casual";
+
+/** The setting for each kind of outfit. */
+const BACKDROP: Record<WearStyle | "default", string> = {
+  ethnic: "Soft, warm, festive studio light on a clean plain backdrop.",
+  formal: "Crisp, even studio light on a minimal light-grey backdrop.",
+  casual:
+    "A natural lifestyle setting in soft daylight, such as a sunny city street or a cafe terrace, with the background gently blurred.",
+  default: "Soft even studio light on a clean plain background.",
+};
+
 /**
  * The instruction sent ahead of the user's scene text. Written for the
  * provider, not the user: it says which half of the sheet is identity and
- * which is wardrobe, and forbids copying text or mannequins.
+ * which is wardrobe. The garment's own print, graphics and logos are part of
+ * the outfit and are kept; everything else in the photo (shop text, price
+ * tags, watermarks, mannequins, hangers, background) is not copied.
  */
 export function tryOnInstruction(
   hasModel: boolean,
   scene: string,
   gender: "woman" | "man" | null = null,
+  style: WearStyle | null = null,
 ): string {
   const who =
     gender === "man"
@@ -63,14 +77,14 @@ export function tryOnInstruction(
         `Create a photorealistic full-length fashion photo of ${who} wearing exactly the outfit, or holding exactly the product, shown in the reference image.`,
       ];
   parts.push(
-    "Keep the outfit's colours, print, pattern, border, cut and fabric identical to the reference.",
-    "Natural pose, soft even studio light, clean plain background, sharp focus, high detail.",
+    "Keep the outfit's colours, print, pattern, border, cut and fabric identical to the reference, including any graphic, logo or lettering that is printed or stitched on the garment itself.",
+    `Natural pose, sharp focus, high detail. ${BACKDROP[style ?? "default"]}`,
   );
   const trimmed = scene.trim();
   if (trimmed) parts.push(`Scene idea: ${trimmed}`);
   parts.push(
-    "Do not copy any text, watermark, logo, mannequin, hanger or background from the reference.",
-    "No on-screen text, captions, logos or watermarks.",
+    "Do not copy anything that is not part of the garment: no shop or background text, price tag, watermark, mannequin, hanger or background from the reference.",
+    "No on-screen text, captions or watermarks added to the image.",
   );
   return parts.join(" ");
 }

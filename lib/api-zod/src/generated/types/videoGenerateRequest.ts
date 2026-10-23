@@ -22,6 +22,7 @@ import type { VideoGenerateRequestResolution } from './videoGenerateRequestResol
 import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
 import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
 import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
+import type { VideoGenerateRequestWearStyle } from './videoGenerateRequestWearStyle';
 import type { VideoReferenceImage } from './videoReferenceImage';
 
 export interface VideoGenerateRequest {
@@ -225,6 +226,11 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /**
+     * Showcase reel: the kind of outfits, so each clip's move fits (ethnic, formal or casual).
+     * @nullable
+     */
+  wearStyle?: VideoGenerateRequestWearStyle;
   /**
      * Showcase reel: who models the looks, so each clip's move fits (a twirl for women's wear, a confident walk for men's wear).
      * @nullable

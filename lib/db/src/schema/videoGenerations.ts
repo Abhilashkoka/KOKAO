@@ -961,6 +961,8 @@ export interface VideoJobOptions {
   photoClips?: boolean;
   /** Showcase reel: who models the looks; picks a fitting move set. */
   modelGender?: "woman" | "man" | null;
+  /** Showcase reel: ethnic, formal or casual outfits; picks the move set. */
+  wearStyle?: "ethnic" | "formal" | "casual" | null;
   /** Reel timing: seconds per bar of the uploaded track. Each clip/slide is cut
    * to a whole number of bars so the cuts land on the music. */
   beatSec?: number | null;

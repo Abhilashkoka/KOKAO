@@ -12701,6 +12701,9 @@ async function generateVideoHandler(
     ...(body.engine === "image_to_video" && body.photoClips && body.modelGender
       ? { modelGender: body.modelGender }
       : {}),
+    ...(body.engine === "image_to_video" && body.photoClips && body.wearStyle
+      ? { wearStyle: body.wearStyle }
+      : {}),
     beatSec:
       (body.engine === "slideshow" || body.photoClips) && body.beatSec ? body.beatSec : null,
     musicStartSec:

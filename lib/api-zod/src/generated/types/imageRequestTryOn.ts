@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ImageRequestTryOnGender } from './imageRequestTryOnGender';
+import type { ImageRequestTryOnStyle } from './imageRequestTryOnStyle';
 
 /**
  * Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.
@@ -24,4 +25,9 @@ export type ImageRequestTryOn = {
      * @nullable
      */
   gender?: ImageRequestTryOnGender;
+  /**
+     * Kind of outfit: sets the backdrop (festive studio, minimal studio, or an outdoor lifestyle setting).
+     * @nullable
+     */
+  style?: ImageRequestTryOnStyle;
 } | null;

@@ -29,6 +29,8 @@ export type SingleDraft = {
   photoRole: "model" | "as_is";
   /** Who models the outfit when the photo is put on a model. */
   gender: "woman" | "man";
+  /** Kind of outfit: sets the backdrop of the dressed photo. */
+  wearStyle: "ethnic" | "formal" | "casual";
   /** The model already dressed in `photo` (reused on retry, so it is not paid twice). */
   dressed: { forPhoto: string; image: Uploaded } | null;
   durationSec: number;
@@ -43,6 +45,8 @@ export type ReelDraft = {
   model: Uploaded | null;
   /** Who models the looks: the AI model's gender and the move set. */
   gender: "woman" | "man";
+  /** Kind of outfits: backdrop of each look and the move set. */
+  wearStyle: "ethnic" | "formal" | "casual";
   looks: ReelLook[];
   music: (Uploaded & { beat: BeatInfo | null }) | null;
   style: "video" | "photo";
@@ -72,6 +76,7 @@ export function emptyDraft(): CreateDraft {
       photo: null,
       photoRole: "model",
       gender: "woman",
+      wearStyle: "ethnic",
       dressed: null,
       durationSec: 10,
       aspect: "9:16",
@@ -82,6 +87,7 @@ export function emptyDraft(): CreateDraft {
     reel: {
       model: null,
       gender: "woman",
+      wearStyle: "ethnic",
       looks: [],
       music: null,
       style: "video",

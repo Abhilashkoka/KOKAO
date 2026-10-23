@@ -15795,7 +15795,8 @@ export const GenerateImageBody = zod.object({
   "tryOn": zod.object({
   "outfitImagePath": zod.string().max(generateImageBodyTryOnOutfitImagePathMax),
   "modelImagePath": zod.string().max(generateImageBodyTryOnModelImagePathMax).nullish(),
-  "gender": zod.union([zod.literal('woman'),zod.literal('man'),zod.literal(null)]).nullish().describe('Who models the outfit when no model photo is given. Ignored when a model photo sets the person.')
+  "gender": zod.union([zod.literal('woman'),zod.literal('man'),zod.literal(null)]).nullish().describe('Who models the outfit when no model photo is given. Ignored when a model photo sets the person.'),
+  "style": zod.union([zod.literal('ethnic'),zod.literal('formal'),zod.literal('casual'),zod.literal(null)]).nullish().describe('Kind of outfit: sets the backdrop (festive studio, minimal studio, or an outdoor lifestyle setting).')
 }).nullish().describe('Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
   "guidedStoryDraftId": zod.number().optional().describe('Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision.'),
@@ -16003,7 +16004,8 @@ export const GenerateImageAsyncBody = zod.object({
   "tryOn": zod.object({
   "outfitImagePath": zod.string().max(generateImageAsyncBodyTryOnOutfitImagePathMax),
   "modelImagePath": zod.string().max(generateImageAsyncBodyTryOnModelImagePathMax).nullish(),
-  "gender": zod.union([zod.literal('woman'),zod.literal('man'),zod.literal(null)]).nullish().describe('Who models the outfit when no model photo is given. Ignored when a model photo sets the person.')
+  "gender": zod.union([zod.literal('woman'),zod.literal('man'),zod.literal(null)]).nullish().describe('Who models the outfit when no model photo is given. Ignored when a model photo sets the person.'),
+  "style": zod.union([zod.literal('ethnic'),zod.literal('formal'),zod.literal('casual'),zod.literal(null)]).nullish().describe('Kind of outfit: sets the backdrop (festive studio, minimal studio, or an outdoor lifestyle setting).')
 }).nullish().describe('Dress a model in an uploaded outfit or product. The outfit photo is the reference for the garment only; an optional model photo keeps the same person across several looks. The prompt is used as written.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
   "guidedStoryDraftId": zod.number().optional().describe('Guided Story draft whose server-owned frozen image selection must be used. Must be supplied together with guidedStoryRevision.'),
@@ -16384,6 +16386,7 @@ export const GenerateVideoBody = zod.object({
   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
   "scriptVariant": zod.union([zod.enum(['marketing', 'training', 'social_short']).describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),zod.null()]).optional().describe('Which kind of video this is. Layers the matching Prompt Kit script variant over the shared rules. Null (or omitted) keeps the base script prompt, which is the pre-variant behaviour.'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
+  "wearStyle": zod.union([zod.literal('ethnic'),zod.literal('formal'),zod.literal('casual'),zod.literal(null)]).nullish().describe('Showcase reel: the kind of outfits, so each clip\'s move fits (ethnic, formal or casual).'),
   "modelGender": zod.union([zod.literal('woman'),zod.literal('man'),zod.literal(null)]).nullish().describe('Showcase reel: who models the looks, so each clip\'s move fits (a twirl for women\'s wear, a confident walk for men\'s wear).'),
   "photoClips": zod.boolean().optional().describe('Showcase reel (image_to_video only): animate each of 2-6 source images as its own clip, in order, joined into one video. Each clip is a separate generation and is priced as such.'),
   "beatSec": zod.number().min(generateVideoBodyBeatSecMin).max(generateVideoBodyBeatSecMax).nullish().describe('Reel timing — seconds per bar of the uploaded track; clips and slides are cut to whole bars.'),

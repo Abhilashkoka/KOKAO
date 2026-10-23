@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barAlignedSec, MAX_REEL_CLIPS, reelLookPrompt } from "./clipStoryboard";
+import { barAlignedSec, MAX_REEL_CLIPS, REEL_MOVE_SETS, reelLookPrompt } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
 
 describe("showcase reel timing and pricing", () => {
@@ -26,5 +26,18 @@ describe("showcase reel timing and pricing", () => {
     expect(new Set(men).size).toBe(6);
     expect(reelLookPrompt("", 0, "woman")).toContain("twirl");
     expect(reelLookPrompt("", 0)).toContain("her full body");
+  });
+
+  it("has six distinct moves for every model and kind of outfit", () => {
+    for (const gender of ["woman", "man"] as const) {
+      for (const wear of ["ethnic", "formal", "casual"] as const) {
+        const moves = REEL_MOVE_SETS[gender][wear];
+        expect(new Set(moves).size).toBe(6);
+        expect(moves.every((m) => m.startsWith(gender === "man" ? "He " : "She "))).toBe(true);
+      }
+    }
+    expect(reelLookPrompt("", 1, "man", "formal")).toContain("buttons his jacket");
+    expect(reelLookPrompt("", 0, "man", "casual")).toContain("relaxed, easy stride");
+    expect(REEL_MOVE_SETS.man.casual.some((m) => /namaste|cuff/.test(m))).toBe(false);
   });
 });

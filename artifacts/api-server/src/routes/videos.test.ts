@@ -1819,6 +1819,7 @@ describe("POST /api/ai/generate-video", () => {
         musicStartSec: 0.4,
         durationSec: 5,
         modelGender: "man",
+        wearStyle: "casual",
         modelId: "wan-2.2-fast",
       });
       expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -1826,7 +1827,7 @@ describe("POST /api/ai/generate-video", () => {
         .select()
         .from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, res.body.id));
-      expect(job?.options).toMatchObject({ photoClips: true, shotCount: 3, beatSec: 2.14, musicStartSec: 0.4, modelGender: "man" });
+      expect(job?.options).toMatchObject({ photoClips: true, shotCount: 3, beatSec: 2.14, musicStartSec: 0.4, modelGender: "man", wearStyle: "casual" });
       expect(job?.sourceImagePaths).toEqual(photos);
       expect(res.body.requiredUnits ?? res.body.units).toBe(3);
       await clearStoredVideoGenKey("replicate");
