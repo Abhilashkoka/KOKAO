@@ -21249,7 +21249,7 @@ components:
           items: { type: integer, minimum: 1 }
         heroShare:
           type: ["number", "null"]
-          minimum: 0.6
+          minimum: 0.4
           maximum: 0.8
           description: Product hero only; share of the runtime with the product on screen (default 0.7).
     GuidedStoryProductReference:

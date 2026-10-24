@@ -4,7 +4,9 @@ import {
   PRODUCT_HERO_WARNING_PREFIX,
   chooseProductImage,
   clampHeroShare,
+  heroReworkInstruction,
   heroShareShortfall,
+  isCharacterLedHero,
   parseShot,
   productHeroScriptRules,
   productHeroShotClause,
@@ -80,9 +82,10 @@ describe("screen time", () => {
     expect(withProductHeroWarnings(low, { ...products, promotion: "featured" }).warnings).toEqual([]);
   });
 
-  it("clamps the target to 60–80%", () => {
+  it("clamps the target to 40–80%", () => {
     expect(clampHeroShare(0.95)).toBe(0.8);
-    expect(clampHeroShare(0.1)).toBe(0.6);
+    expect(clampHeroShare(0.1)).toBe(0.4);
+    expect(clampHeroShare(0.5)).toBe(0.5);
     expect(clampHeroShare(undefined)).toBe(0.7);
   });
 });
@@ -94,6 +97,20 @@ describe("script brief and parsing", () => {
     expect(brief).toContain("At least 70% of the total runtime");
     expect(brief).toContain("photos of front, label close-up, back");
     expect(productHeroScriptRules(products).join(" ")).toContain("Never repeat the same shot type");
+  });
+
+  it("keeps the cast on screen when the target is 40–50%", () => {
+    const low = { ...products, heroShare: 0.5 };
+    expect(isCharacterLedHero(low)).toBe(true);
+    expect(isCharacterLedHero(products)).toBe(false);
+    expect(isCharacterLedHero({ ...low, promotion: "featured" })).toBe(false);
+    const rules = productHeroScriptRules(low).join(" ");
+    expect(rules).toContain("CHARACTER-LED");
+    expect(rules).toContain("At least 50% of the total runtime");
+    expect(rules).toContain("character_with_product");
+    expect(rules).not.toContain("product-only B-roll with no people");
+    expect(heroReworkInstruction(low)).toContain("Do not turn dialogue scenes into product-only shots");
+    expect(heroReworkInstruction(products)).toContain("A product-only scene must have an empty roleIds");
   });
 
   it("allows a product-only opening hook in hero mode", () => {

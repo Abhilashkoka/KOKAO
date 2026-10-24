@@ -540,12 +540,17 @@ export function GuidedProductPicker({
           <span className="text-xs font-medium">Product on screen:</span>
           <SegmentedChoice
             value={String(heroShare)}
-            options={[["0.6", "60%"], ["0.7", "70%"], ["0.8", "80%"]] as Array<[string, string]>}
+            options={[["0.4", "40%"], ["0.5", "50%"], ["0.6", "60%"], ["0.7", "70%"], ["0.8", "80%"]] as Array<[string, string]>}
             onChange={(next: string) => onHeroShareChange(Number(next))}
             disabled={disabled}
             testId="toggle-guided-hero-share"
           />
           <span className="text-xs text-muted-foreground">of the video.</span>
+          {heroShare < 0.6 && (
+            <span className="w-full text-xs text-muted-foreground" data-testid="text-guided-hero-character-led">
+              Character-led: your characters stay on screen using and reacting to the product. Good for comedy and story ads.
+            </span>
+          )}
         </div>
       )}
       {products.isLoading ? (

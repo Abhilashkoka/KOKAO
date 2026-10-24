@@ -41,6 +41,7 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { track } from "@/lib/analytics";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { Button } from "@/components/ui/button";
+import { shouldNudgeProduct } from "@/lib/product-nudge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -327,6 +328,7 @@ export function GuidedStoryWorkflow({
   const [topic, setTopic] = useState("");
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [productAssetIds, setProductAssetIds] = useState<number[]>([]);
+  const [productNudgeDismissed, setProductNudgeDismissed] = useState(false);
   const [promotion, setPromotion] = useState<GuidedPromotion>("hero");
   const [heroShare, setHeroShare] = useState(0.7);
   const [customTone, setCustomTone] = useState("");
@@ -647,7 +649,7 @@ export function GuidedStoryWorkflow({
     setPlatformId("");
     setDuration(null);
     setLocale("en");
-    setTopic("");
+    setTopic(""); setProductNudgeDismissed(false);
     setBrandKitId(null);
     setProductAssetIds([]);
     setPromotion("hero");
@@ -1175,6 +1177,7 @@ export function GuidedStoryWorkflow({
             <div><Label>Publishing platform</Label><Select value={platformId} onValueChange={setPlatformId}><SelectTrigger data-testid="select-guided-platform"><SelectValue placeholder="Choose a platform" /></SelectTrigger><SelectContent>{(platforms.data ?? []).map((item) => <SelectItem key={item.id} value={item.id}>{item.id.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Brand Kit and voice library (optional)</Label><Select value={brandKitId?.toString() ?? ""} onValueChange={(value) => { const next = Number(value); if (next !== brandKitId) setProductAssetIds([]); setBrandKitId(next); }}><SelectTrigger data-testid="select-guided-brand-kit"><SelectValue placeholder="No Brand Kit" /></SelectTrigger><SelectContent>{brandKits.map((kit) => <SelectItem key={kit.id} value={String(kit.id)}>{kit.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
+          <div id="guided-products-anchor" className="scroll-mt-24" />
           <GuidedProductPicker brandKitId={brandKitId} selected={productAssetIds} onSelectedChange={setProductAssetIds} promotion={promotion} onPromotionChange={setPromotion} heroShare={heroShare} onHeroShareChange={setHeroShare} disabled={mutationLocked} />
           <GuidedStoryUploads rows={uploads} onChange={setUploads} disabled={mutationLocked} hasBrandKit={brandKitId !== null} />
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
@@ -1237,6 +1240,18 @@ export function GuidedStoryWorkflow({
               handles={uploads.filter((row) => row.status === "ready").map((row) => normalizeHandle(row.handle)).filter((handle) => handle.length >= 2)}
               onInsert={(handle) => setTopic((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}@${handle} `)}
             />
+            {shouldNudgeProduct({
+              topic,
+              selectedProducts: brandKitId === null ? 0 : productAssetIds.length,
+              productUploads: uploads.filter((row) => row.status === "ready" && row.use === "product").length,
+              dismissed: productNudgeDismissed,
+            }) && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-violet-200 bg-violet-50 p-3 text-sm dark:border-violet-900 dark:bg-violet-950/30" role="status" data-testid="nudge-guided-attach-product">
+                <span className="flex-1">Looks like a product ad. Attach it from your Brand Kit so the video shows the real product.</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => document.getElementById("guided-products-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" })} data-testid="button-guided-nudge-attach">Attach product</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setProductNudgeDismissed(true)} data-testid="button-guided-nudge-dismiss">Not a product ad</Button>
+              </div>
+            )}
           </div>
           <GuidedRequirementsEditor
             value={requirements}

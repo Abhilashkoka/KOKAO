@@ -58,8 +58,13 @@ export const ANGLE_VIEWS: readonly BrandProductAngleView[] = [
 ];
 
 export const DEFAULT_HERO_SHARE = 0.7;
-export const MIN_HERO_SHARE = 0.6;
+export const MIN_HERO_SHARE = 0.4;
 export const MAX_HERO_SHARE = 0.8;
+/**
+ * Below this share the ad is character-led: the cast stays on screen with the
+ * product (comedy, drama, slice-of-life ads) instead of product-only B-roll.
+ */
+export const CHARACTER_LED_BELOW = 0.6;
 /** Below this share the script is repaired once, then warned. */
 export const HERO_SHARE_TOLERANCE = 0.05;
 /** One main photo plus extra angles. */
@@ -122,6 +127,20 @@ export function clampHeroShare(value: unknown): number {
 
 export function isProductHero(products: GuidedStoryProductChoices | null | undefined): boolean {
   return products?.promotion === "hero" && (products.items?.length ?? 0) > 0;
+}
+
+/** Product hero with a 40–50% target: characters carry the product scenes. */
+export function isCharacterLedHero(products: GuidedStoryProductChoices | null | undefined): boolean {
+  return isProductHero(products) && clampHeroShare(products!.heroShare) < CHARACTER_LED_BELOW;
+}
+
+/** How the one-shot screen-time rework may change scenes. */
+export function heroReworkInstruction(products: GuidedStoryProductChoices): string {
+  const keep =
+    "Keep every scene's id, startMs, endMs and lines exactly, the cast, and the story's meaning. Change only visualDirection, roleIds, productIds and shot.";
+  return isCharacterLedHero(products)
+    ? `${keep} Turn context scenes into character_with_product, in_hand or in_use shots where the characters handle, use or react to the product while the same words are spoken; keep each scene's speakers in roleIds. Do not turn dialogue scenes into product-only shots.`
+    : `${keep} Turn context scenes into close-ups, in-hand, in-use, texture or product-only shots of the product while the same words are spoken. A product-only scene must have an empty roleIds and narration-only lines; if a scene has dialogue, keep its speaker in roleIds and use in_hand, in_use or character_with_product.`;
 }
 
 /** Views available for a frozen product: main photo plus its angles. */
@@ -223,10 +242,20 @@ export function productHeroScriptRules(products: GuidedStoryProductChoices): str
   const views = products.items
     .map((item) => `${item.id}: photos of ${productViews(item).map((view) => ANGLE_TEXT[view]).join(", ")}`)
     .join("; ");
+  const lead = isCharacterLedHero(products)
+    ? [
+        "Promotion level: PRODUCT HERO, CHARACTER-LED. This is a product advertisement told through the characters: the story and the genre's tone stay intact, and the product is the turning point of that story.",
+        `At least ${percent}% of the total runtime must be scenes whose subject is the product (tag them in productIds). Use the rest for the setup, the characters' reactions and the payoff.`,
+        "Keep the characters on screen in product scenes: prefer character_with_product, in_hand and in_use shots, with the speaking characters in roleIds, so dialogue, reactions and comic timing run through the product moments.",
+        "Use at most one product-only, macro or texture shot, and only as a short beat (for example a reveal or the final hero shot). Leave room for setup and reaction beats; do not pack every scene with the product.",
+      ]
+    : [
+        "Promotion level: PRODUCT HERO. This is a product advertisement. The product is the subject of the video; the characters and story exist to show it off.",
+        `At least ${percent}% of the total runtime must be scenes whose subject is the product (tag them in productIds). Use the rest for a short hook, context and the call to action.`,
+        "Show the product from different angles across the video: macro close-ups, in hand being turned, in use, texture details, a clean hero shot, and product-only B-roll with no people.",
+      ];
   return [
-    "Promotion level: PRODUCT HERO. This is a product advertisement. The product is the subject of the video; the characters and story exist to show it off.",
-    `At least ${percent}% of the total runtime must be scenes whose subject is the product (tag them in productIds). Use the rest for a short hook, context and the call to action.`,
-    "Show the product from different angles across the video: macro close-ups, in hand being turned, in use, texture details, a clean hero shot, and product-only B-roll with no people.",
+    ...lead,
     "Product-only scenes have an empty roleIds list and use narration only. Close-ups may show hands without a face.",
     "Never repeat the same shot type twice in a row; vary camera moves and lighting from scene to scene.",
     `Give every scene a shot object: {"type": one of ${SHOT_TYPES.join("|")}, "camera": one of ${CAMERA_MOVES.join("|")}, "lighting": one of ${LIGHTING.join("|")}, "angle": which product photo it shows, one of ${ANGLE_VIEWS.join("|")} or null}.`,

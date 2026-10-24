@@ -21,7 +21,7 @@ export class GuidedProductSelectionError extends Error {}
 export type GuidedProductSelectionInput = {
   promotion: "subtle" | "featured" | "hero";
   assetIds: number[];
-  /** "hero" only: share of runtime with the product on screen, 0.6–0.8. */
+  /** "hero" only: share of runtime with the product on screen, 0.4–0.8. */
   heroShare?: number | null;
 };
 

@@ -17114,7 +17114,7 @@ export const createGuidedStoryDraftBodyTopicMax = 6000;
 
 export const createGuidedStoryDraftBodyProductSelectionAssetIdsMax = 4;
 
-export const createGuidedStoryDraftBodyProductSelectionHeroShareMin = 0.6;
+export const createGuidedStoryDraftBodyProductSelectionHeroShareMin = 0.4;
 export const createGuidedStoryDraftBodyProductSelectionHeroShareMax = 0.8;
 
 
@@ -17198,7 +17198,7 @@ export const createGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const createGuidedStoryDraftResponseScriptOneRolesMax = 20;
@@ -17708,7 +17708,7 @@ export const getGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const getGuidedStoryDraftResponseScriptOneRolesMax = 20;
@@ -18219,7 +18219,7 @@ export const updateGuidedStoryDraftBodySetupTopicMax = 6000;
 
 export const updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax = 4;
 
-export const updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin = 0.6;
+export const updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin = 0.4;
 export const updateGuidedStoryDraftBodySetupProductSelectionHeroShareMax = 0.8;
 
 export const updateGuidedStoryDraftBodyScriptRolesMax = 20;
@@ -18445,7 +18445,7 @@ export const updateGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const updateGuidedStoryDraftResponseScriptOneRolesMax = 20;
@@ -18962,7 +18962,7 @@ export const generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
 export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
@@ -19489,7 +19489,7 @@ export const refreshGuidedStoryLineTranslationResponseSetupOneOneTopicMax = 6000
 
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMax = 20;
@@ -20141,7 +20141,7 @@ export const approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax = 6000;
 
 export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
@@ -20673,7 +20673,7 @@ export const castGuidedStoryDraftResponseSetupOneOneTopicMax = 6000;
 
 export const castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const castGuidedStoryDraftResponseScriptOneRolesMax = 20;
@@ -21192,7 +21192,7 @@ export const approveGuidedStoryCastRoleResponseSetupOneOneTopicMax = 6000;
 
 export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const approveGuidedStoryCastRoleResponseScriptOneRolesMax = 20;
@@ -21726,7 +21726,7 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneTopicMax = 
 
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax = 20;
@@ -22245,7 +22245,7 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneTopic
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax = 20;
@@ -22856,7 +22856,7 @@ export const prepareGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
 export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 20;
@@ -23381,7 +23381,7 @@ export const approveGuidedStoryBackdropResponseSetupOneOneTopicMax = 6000;
 
 export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 20;
@@ -23899,7 +23899,7 @@ export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneTopicMax = 6000
 
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 20;
@@ -24417,7 +24417,7 @@ export const finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
 export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 20;
@@ -24935,7 +24935,7 @@ export const rejectGuidedStoryReferenceResponseSetupOneOneTopicMax = 6000;
 
 export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax = 4;
 
-export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
+export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.4;
 export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
 export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 20;

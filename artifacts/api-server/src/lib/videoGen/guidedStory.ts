@@ -30,6 +30,7 @@ import type { MeterContext } from "../meter";
 import {
   chooseProductImage,
   clampHeroShare,
+  heroReworkInstruction,
   heroShareShortfall,
   isProductHero,
   parseShot,
@@ -2017,7 +2018,7 @@ export async function generateGuidedStoryScript(params: {
             role: "user",
             content: [
               `Only ${Math.round(productScreenTime(script).share * 100)}% of this screenplay shows the product. Rework it so at least ${Math.round(target * 100)}% of the runtime is scenes whose subject is the product (listed in productIds, with a product-focused shot).`,
-              "Keep every scene's id, startMs, endMs and lines exactly, the cast, and the story's meaning. Change only visualDirection, roleIds, productIds and shot: turn context scenes into close-ups, in-hand, in-use, texture or product-only shots of the product while the same words are spoken. A product-only scene must have an empty roleIds and narration-only lines; if a scene has dialogue, keep its speaker in roleIds and use in_hand, in_use or character_with_product.",
+              heroReworkInstruction(params.products!),
               ...productHeroScriptRules(params.products!),
               outputFormat,
               `SUPPLIED JSON DATA:\n${JSON.stringify(script)}`,
