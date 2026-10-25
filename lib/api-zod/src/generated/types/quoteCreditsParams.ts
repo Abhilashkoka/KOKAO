@@ -8,7 +8,7 @@
 
 export type QuoteCreditsParams = {
 /**
- * A rate key (image, caption, ...) or "video" for a whole job.
+ * A rate key (image, caption, ...), "video" for a whole job, or "guided_story" with draftId.
  */
 action: string;
 quantity?: number;
@@ -17,4 +17,8 @@ sceneCount?: number;
 resolution?: string;
 narrated?: boolean;
 lipSync?: boolean;
+/**
+ * With action=guided_story, the Guided Story draft to price from its approved script.
+ */
+draftId?: number;
 };

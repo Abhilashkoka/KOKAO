@@ -1,3 +1,4 @@
+import { SpendGuardCard } from "./spend-guard-card";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch } from "wouter";
 import {
@@ -5694,6 +5695,7 @@ export function AiTab() {
       <AiSpendCard />
       {flags.wallet && <WalletCard />}
       <CreditRatesCard />
+      <SpendGuardCard />
       <CreditMeterReportCard />
       <CreditMigrationCard />
       {flags.aiCostTracking && (

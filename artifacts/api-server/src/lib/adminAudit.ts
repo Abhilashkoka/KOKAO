@@ -49,6 +49,7 @@ export type AdminAuditAction =
   | "video_publish_resolution"
   | "credit_pack_change"
   | "credit_rates_change"
+  | "credit_spend_guard_change"
   | "credit_account_grant"
   | "credit_account_correction"
   | "credit_grant"

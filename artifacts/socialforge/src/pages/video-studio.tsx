@@ -118,9 +118,17 @@ import {
   type GuidedStoryDraft,
   type GuidedStoryReferenceOperation,
   type GuidedStoryDialogueReplayPreview,
+  useQuoteCredits,
+  getQuoteCreditsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
+import {
+  CreditQuoteSummary,
+  useCreditFunding,
+} from "@/components/credit-balance";
+import { useSpendConfirmation } from "@/components/spend-guard";
+import { VideoCreditReceipt } from "@/components/video-credit-receipt";
 import {
   trackProjectEvent,
   trackPresetCastEvent,
@@ -2985,7 +2993,7 @@ export function VideoStudioPage() {
     reviewStoryboard,
   ]);
 
-  const onGenerate = () => {
+  const onGenerate = (spendConfirmed = false) => {
     // Never submit before the plan is known: a free workspace could otherwise
     // send a paid-only request during the first profile load.
     if (meLoading) return;
@@ -3095,6 +3103,20 @@ export function VideoStudioPage() {
         isHybridCharacterStory)
         ? presetCharacterId
         : null;
+
+    // A big job is never charged on one click: above the spend guard the
+    // itemised quote is confirmed first, then this runs again past the gate.
+    if (
+      !spendConfirmed &&
+      showCreditQuote &&
+      videoCreditQuote &&
+      spendConfirmation.needsConfirm(videoCreditQuote)
+    ) {
+      spendConfirmation.confirm(videoCreditQuote, "Generate", () =>
+        onGenerate(true),
+      );
+      return;
+    }
 
     generateVideo.mutate(
       {
@@ -3560,6 +3582,35 @@ export function VideoStudioPage() {
 
   const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
   const walletReservationPaise = walletUnitPaise * estimatedUnits;
+
+  // ---- Credit quote (credit-funded workspaces) ----
+  // Mirrors the server preflight in routes/videos.ts exactly (same duration,
+  // scene count, resolution and narration inputs), so the number shown beside
+  // Generate is the number the preflight checks and the meter prices from.
+  const { creditFunded } = useCreditFunding();
+  const spendConfirmation = useSpendConfirmation();
+  const creditQuotePayloadEngine = isCharacterDialogue
+    ? "dialogue_lip_sync"
+    : engine;
+  const creditQuoteParams = {
+    action: "video",
+    durationSec: Math.max(
+      1,
+      (isCharacterDialogue ? scriptDuration : durationSec) || 5,
+    ),
+    sceneCount: Math.max(1, (Math.trunc(paragraphCount) || 1) * 4),
+    ...(engine !== "slideshow" && resolution ? { resolution } : {}),
+    narrated: creditQuotePayloadEngine === "topic_to_video",
+  };
+  const showCreditQuote =
+    creditFunded && engine !== "slideshow" && engine !== "guided_story";
+  const { data: videoCreditQuote } = useQuoteCredits(creditQuoteParams, {
+    query: {
+      queryKey: getQuoteCreditsQueryKey(creditQuoteParams),
+      enabled: showCreditQuote,
+      staleTime: 10_000,
+    },
+  });
   const templatePlanningCeilingUnits = useMemo(() => {
     if (
       !templatePlansBeforeVisualFunding ||
@@ -7272,8 +7323,17 @@ export function VideoStudioPage() {
               ? true
               : spokespersonStep === "setup") && (
               <div className="space-y-2">
+                {showCreditQuote && videoCreditQuote && (
+                  <CreditQuoteSummary
+                    credits={videoCreditQuote.credits}
+                    balanceAfter={videoCreditQuote.balanceAfter}
+                    sufficient={videoCreditQuote.sufficient}
+                    lines={videoCreditQuote.lines}
+                  />
+                )}
+                {spendConfirmation.dialog}
                 <Button
-                  onClick={onGenerate}
+                  onClick={() => onGenerate()}
                   disabled={
                     meLoading ||
                     freeTopicUnavailable ||
@@ -7574,6 +7634,7 @@ export function VideoStudioPage() {
                     Includes associated generated images, characters, and video.
                   </p>
                 </div>
+                <VideoCreditReceipt jobId={activeJob.id} />
                 {activeJob.smartEditVersionId && activeJob.smartEditVersionId !== "v0" && (
                   <p className="text-xs text-muted-foreground" data-testid="text-smart-edit-current">
                     Showing your edited version. Earlier versions are in Edit → Versions.

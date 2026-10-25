@@ -118,6 +118,58 @@ export async function quoteVideoJobCredits(
   return { credits: round(totalMilli / MILLI), lines };
 }
 
+/** The parts of a Guided Story draft that decide what its final render costs. */
+export interface GuidedDraftQuoteSource {
+  setup: { width: number; height: number; durationSeconds: number } | null;
+  script: {
+    runtimeSeconds: number;
+    scenes: Array<{
+      startMs: number;
+      endMs: number;
+      lines: Array<{ startMs: number; endMs: number }>;
+    }>;
+  } | null;
+}
+
+/**
+ * The quote input for a Guided Story's final render, read from the approved
+ * script rather than the generic request body.
+ *
+ * A guided enqueue sends no duration or paragraph count, so the generic
+ * preflight used to price every guided story as a 5-second, 4-scene job. The
+ * script carries the real runtime, the real scene count and every spoken line,
+ * so the quote shown before the button and the preflight that guards it both
+ * use those.
+ */
+export function guidedDraftQuoteInput(
+  draft: GuidedDraftQuoteSource,
+  options: { lipSync?: boolean } = {},
+): VideoJobQuoteInput | null {
+  const script = draft.script;
+  if (!script || script.scenes.length === 0) return null;
+  const sceneSpanSec = script.scenes.reduce(
+    (total, scene) => total + Math.max(0, scene.endMs - scene.startMs) / 1000,
+    0,
+  );
+  const durationSec = Math.max(
+    1,
+    Number.isFinite(script.runtimeSeconds) && script.runtimeSeconds > 0
+      ? script.runtimeSeconds
+      : sceneSpanSec || draft.setup?.durationSeconds || 1,
+  );
+  const spoken = script.scenes.some((scene) => scene.lines.length > 0);
+  const shortSide = draft.setup
+    ? Math.min(draft.setup.width, draft.setup.height)
+    : null;
+  return {
+    durationSec,
+    sceneCount: script.scenes.length,
+    resolution: shortSide ? `${shortSide}p` : null,
+    narrated: spoken,
+    lipSync: options.lipSync === true,
+  };
+}
+
 /** 720p and above bills as HD. Unknown resolutions bill at the base rate. */
 function isHd(resolution?: string | null): boolean {
   if (!resolution) return false;

@@ -89,6 +89,18 @@ export const creditMeterSettingsTable = pgTable("credit_meter_settings", {
    * that fallback is still in effect.
    */
   creditPricePaise: integer("credit_price_paise"),
+  /**
+   * Spend guard: one action quoted above this many credits asks the user to
+   * confirm before anything is charged. Null = the built-in default (100).
+   * 0 turns the absolute threshold off.
+   */
+  confirmAboveCredits: integer("confirm_above_credits"),
+  /**
+   * Spend guard: one action quoted above this percentage of the current
+   * balance asks for confirmation. Null = the built-in default (25). 0 turns
+   * the relative threshold off.
+   */
+  confirmAbovePercent: integer("confirm_above_percent"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

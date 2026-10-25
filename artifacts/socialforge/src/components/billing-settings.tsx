@@ -23,8 +23,10 @@ import {
 } from "@workspace/api-client-react";
 import type { Plan } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditUsageCard } from "@/components/credit-balance";
+import { CreditUsageCard, CreditValueLine } from "@/components/credit-balance";
 import { PromoterCodeField } from "@/components/promoter-code-field";
+import { RestorePurchasesCard } from "@/components/restore-purchases";
+import { forgetPendingPayment, rememberPendingPayment } from "@/lib/pending-payments";
 import { refreshCreditBalance } from "@/lib/refresh-credit-balance";
 import { Button } from "@/components/ui/button";
 import {
@@ -165,6 +167,14 @@ export function BillingSettings() {
       if (started.gateway === "cashfree") {
         // The modal closing is not proof of authorization — always verify with
         // the server, which re-checks with Cashfree and is authoritative.
+        // Remembered before the modal opens, so a closed tab or lost signal
+        // after paying can still be recovered from Restore purchases.
+        const planName = plans?.find((p) => p.id === planId)?.name ?? planId;
+        rememberPendingPayment(
+          "subscription",
+          started.cashfreeSubscriptionId ?? "",
+          `${planName} subscription`,
+        );
         await openCashfreeSubscriptionCheckout({
           subscriptionSessionId: started.subscriptionSessionId ?? "",
           mode: started.cashfreeMode,
@@ -177,6 +187,7 @@ export function BillingSettings() {
           },
           {
             onSuccess: () => {
+              forgetPendingPayment("subscription", started.cashfreeSubscriptionId ?? "");
               trackProjectEvent("subscription_activated", {
                 billing_cycle: cycle,
               });
@@ -269,6 +280,7 @@ export function BillingSettings() {
 
       if (order.gateway === "cashfree") {
         // Modal close is not proof of payment — always verify server-side.
+        rememberPendingPayment("pack", order.cashfreeOrderId ?? "", packName);
         await openCashfreeCheckout({
           paymentSessionId: order.paymentSessionId ?? "",
           mode: order.cashfreeMode,
@@ -277,6 +289,7 @@ export function BillingSettings() {
           { data: { cashfreeOrderId: order.cashfreeOrderId ?? "" } },
           {
             onSuccess: async () => {
+              forgetPendingPayment("pack", order.cashfreeOrderId ?? "");
               trackProjectEvent("credits_purchased", { pack: packSlug });
               try {
                 await refreshCreditBalance(queryClient);
@@ -558,6 +571,18 @@ export function BillingSettings() {
                       )}
                     </p>
                   )}
+                  {plan.billingMode === "credits" && (plan.monthlyCredits ?? 0) > 0 && (
+                    <div className="space-y-0.5" data-testid={`billing-plan-${plan.id}-credits`}>
+                      <p className="text-xs font-medium text-foreground">
+                        {plan.monthlyCredits!.toLocaleString("en-IN")} credits every month
+                      </p>
+                      <CreditValueLine
+                        credits={plan.monthlyCredits!}
+                        suffix="a month"
+                        testId={`billing-plan-${plan.id}-credit-value`}
+                      />
+                    </div>
+                  )}
                   <ul className="space-y-1.5">
                     {getDisplayedPlanFeatures(plan).map((feature, i) => (
                       <li key={i} className="text-xs text-muted-foreground">
@@ -691,6 +716,8 @@ export function BillingSettings() {
           )}
         </CardContent>
       </Card>
+
+      {isOwner && <RestorePurchasesCard onRestored={refresh} />}
 
       {flags.promoCodes && isOwner && (
         <Card className="border-border shadow-sm">

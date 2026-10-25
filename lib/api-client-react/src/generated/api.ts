@@ -214,6 +214,7 @@ import type {
   CreditQuote,
   CreditRateCard,
   CreditRateCardInput,
+  CreditSpendGuard,
   CreditWallet,
   CustomAiProviderTestResponse,
   CustomAiProvidersView,
@@ -520,6 +521,7 @@ import type {
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
+  VideoJobCreditReceipt,
   VideoLibraryCopySource,
   VideoModelList,
   VideoModelPricingSyncResult,
@@ -36494,6 +36496,83 @@ export function useQuoteCredits<TData = Awaited<ReturnType<typeof quoteCredits>>
 
 
 
+export const getGetVideoJobCreditReceiptUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/credits/receipts/video-jobs/${jobId}`
+}
+
+/**
+ * @summary What a video job was quoted and what it actually charged
+ */
+export const getVideoJobCreditReceipt = async (jobId: number, options?: RequestInit): Promise<VideoJobCreditReceipt> => {
+
+  return customFetch<VideoJobCreditReceipt>(getGetVideoJobCreditReceiptUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVideoJobCreditReceiptQueryKey = (jobId: number,) => {
+    return [
+    `/api/credits/receipts/video-jobs/${jobId}`
+    ] as const;
+    }
+
+
+export const getGetVideoJobCreditReceiptQueryOptions = <TData = Awaited<ReturnType<typeof getVideoJobCreditReceipt>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobCreditReceipt>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVideoJobCreditReceiptQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVideoJobCreditReceipt>>> = ({ signal }) => getVideoJobCreditReceipt(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVideoJobCreditReceipt>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVideoJobCreditReceiptQueryResult = NonNullable<Awaited<ReturnType<typeof getVideoJobCreditReceipt>>>
+export type GetVideoJobCreditReceiptQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary What a video job was quoted and what it actually charged
+ */
+
+export function useGetVideoJobCreditReceipt<TData = Awaited<ReturnType<typeof getVideoJobCreditReceipt>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobCreditReceipt>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVideoJobCreditReceiptQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getListQuickCreatePresetsUrl = () => {
 
 
@@ -37004,6 +37083,153 @@ export const useAdminUpdateCreditRates = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateCreditRatesMutationOptions(options));
+    }
+
+export const getAdminGetCreditSpendGuardUrl = () => {
+
+
+
+
+  return `/api/admin/credit-spend-guard`
+}
+
+/**
+ * @summary When paid actions must be confirmed before spending (superadmin only)
+ */
+export const adminGetCreditSpendGuard = async ( options?: RequestInit): Promise<CreditSpendGuard> => {
+
+  return customFetch<CreditSpendGuard>(getAdminGetCreditSpendGuardUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetCreditSpendGuardQueryKey = () => {
+    return [
+    `/api/admin/credit-spend-guard`
+    ] as const;
+    }
+
+
+export const getAdminGetCreditSpendGuardQueryOptions = <TData = Awaited<ReturnType<typeof adminGetCreditSpendGuard>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditSpendGuard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetCreditSpendGuardQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetCreditSpendGuard>>> = ({ signal }) => adminGetCreditSpendGuard({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditSpendGuard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetCreditSpendGuardQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetCreditSpendGuard>>>
+export type AdminGetCreditSpendGuardQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary When paid actions must be confirmed before spending (superadmin only)
+ */
+
+export function useAdminGetCreditSpendGuard<TData = Awaited<ReturnType<typeof adminGetCreditSpendGuard>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCreditSpendGuard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetCreditSpendGuardQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateCreditSpendGuardUrl = () => {
+
+
+
+
+  return `/api/admin/credit-spend-guard`
+}
+
+/**
+ * @summary Change the spend-confirmation thresholds (superadmin only)
+ */
+export const adminUpdateCreditSpendGuard = async (creditSpendGuard: CreditSpendGuard, options?: RequestInit): Promise<CreditSpendGuard> => {
+
+  return customFetch<CreditSpendGuard>(getAdminUpdateCreditSpendGuardUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(creditSpendGuard)
+  }
+);}
+
+
+
+
+export const getAdminUpdateCreditSpendGuardMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditSpendGuard>>, TError,{data: BodyType<CreditSpendGuard>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditSpendGuard>>, TError,{data: BodyType<CreditSpendGuard>}, TContext> => {
+
+const mutationKey = ['adminUpdateCreditSpendGuard'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateCreditSpendGuard>>, {data: BodyType<CreditSpendGuard>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateCreditSpendGuard(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateCreditSpendGuardMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateCreditSpendGuard>>>
+    export type AdminUpdateCreditSpendGuardMutationBody = BodyType<CreditSpendGuard>
+    export type AdminUpdateCreditSpendGuardMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Change the spend-confirmation thresholds (superadmin only)
+ */
+export const useAdminUpdateCreditSpendGuard = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCreditSpendGuard>>, TError,{data: BodyType<CreditSpendGuard>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateCreditSpendGuard>>,
+        TError,
+        {data: BodyType<CreditSpendGuard>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateCreditSpendGuardMutationOptions(options));
     }
 
 export const getAdminGetCreditMeterReportUrl = (params?: AdminGetCreditMeterReportParams,) => {

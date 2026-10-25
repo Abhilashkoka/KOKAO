@@ -149,6 +149,24 @@ let modeCache: MeterMode | null = null;
 let modeCacheLoadedAt = 0;
 let creditPricePaiseCache: number | null = null;
 let creditPricePaiseCacheLoadedAt = 0;
+let spendGuardCache: SpendGuard | null = null;
+let spendGuardCacheLoadedAt = 0;
+
+/**
+ * When one action is big enough that the user must confirm it before any
+ * credit is spent. Either threshold set to 0 is switched off.
+ */
+export interface SpendGuard {
+  /** Confirm when one action is quoted above this many credits. */
+  confirmAboveCredits: number;
+  /** Confirm when one action is quoted above this % of the balance. */
+  confirmAbovePercent: number;
+}
+
+export const DEFAULT_SPEND_GUARD: SpendGuard = {
+  confirmAboveCredits: 100,
+  confirmAbovePercent: 25,
+};
 
 export class CreditEnforcementLockedError extends Error {
   readonly code = "CREDIT_ENFORCEMENT_LOCKED";
@@ -175,6 +193,8 @@ export function invalidateCreditRateCache(): void {
   modeCacheLoadedAt = 0;
   creditPricePaiseCache = null;
   creditPricePaiseCacheLoadedAt = 0;
+  spendGuardCache = null;
+  spendGuardCacheLoadedAt = 0;
 }
 
 function toView(row: CreditRate): CreditRateView {
@@ -610,4 +630,94 @@ export async function setCreditPricePaise(pricePaise: number): Promise<number> {
     });
   invalidateCreditRateCache();
   return pricePaise;
+}
+
+function validGuardValue(value: unknown, max: number): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= max;
+}
+
+/**
+ * The spend guard in force. A missing row or a null column reads as the
+ * built-in default, so the guard is on from the first boot without anyone
+ * having to configure it.
+ */
+export async function getSpendGuard(): Promise<SpendGuard> {
+  if (
+    spendGuardCache !== null &&
+    Date.now() - spendGuardCacheLoadedAt < CREDIT_RATE_CACHE_TTL_MS
+  ) {
+    return spendGuardCache;
+  }
+  const [row] = await db
+    .select({
+      confirmAboveCredits: creditMeterSettingsTable.confirmAboveCredits,
+      confirmAbovePercent: creditMeterSettingsTable.confirmAbovePercent,
+    })
+    .from(creditMeterSettingsTable)
+    .orderBy(asc(creditMeterSettingsTable.id))
+    .limit(1);
+  spendGuardCache = {
+    confirmAboveCredits: validGuardValue(row?.confirmAboveCredits, 1_000_000)
+      ? row!.confirmAboveCredits!
+      : DEFAULT_SPEND_GUARD.confirmAboveCredits,
+    confirmAbovePercent: validGuardValue(row?.confirmAbovePercent, 100)
+      ? row!.confirmAbovePercent!
+      : DEFAULT_SPEND_GUARD.confirmAbovePercent,
+  };
+  spendGuardCacheLoadedAt = Date.now();
+  return spendGuardCache;
+}
+
+export class SpendGuardNotReadyError extends Error {
+  constructor() {
+    super("Save the credit rate card once before changing the spend guard.");
+    this.name = "SpendGuardNotReadyError";
+  }
+}
+
+/**
+ * Change the spend guard. Updates the existing settings row only: creating
+ * the row here would plant an unreviewed settings row that the production
+ * saved-rate bootstrap refuses to start over.
+ */
+export async function setSpendGuard(guard: SpendGuard): Promise<SpendGuard> {
+  if (
+    !validGuardValue(guard.confirmAboveCredits, 1_000_000) ||
+    !validGuardValue(guard.confirmAbovePercent, 100)
+  ) {
+    throw new Error(
+      "Confirm thresholds must be whole numbers: credits 0–1,000,000 and percent 0–100.",
+    );
+  }
+  const updated = await db
+    .update(creditMeterSettingsTable)
+    .set({
+      confirmAboveCredits: guard.confirmAboveCredits,
+      confirmAbovePercent: guard.confirmAbovePercent,
+      updatedAt: new Date(),
+    })
+    .returning({ id: creditMeterSettingsTable.id });
+  if (updated.length === 0) throw new SpendGuardNotReadyError();
+  invalidateCreditRateCache();
+  return { ...guard };
+}
+
+/**
+ * Whether a quoted action needs an explicit confirmation. Mirrors the
+ * client's check so tests can pin the rule in one place.
+ */
+export function spendNeedsConfirmation(
+  guard: SpendGuard,
+  quotedCredits: number,
+  balance: number,
+): boolean {
+  if (!(quotedCredits > 0)) return false;
+  if (guard.confirmAboveCredits > 0 && quotedCredits > guard.confirmAboveCredits) {
+    return true;
+  }
+  return (
+    guard.confirmAbovePercent > 0 &&
+    balance > 0 &&
+    (quotedCredits / balance) * 100 > guard.confirmAbovePercent
+  );
 }

@@ -13443,7 +13443,7 @@ paths:
           required: true
           schema:
             type: string
-          description: A rate key (image, caption, ...) or "video" for a whole job.
+          description: A rate key (image, caption, ...), "video" for a whole job, or "guided_story" with draftId.
         - name: quantity
           in: query
           required: false
@@ -13474,6 +13474,12 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: draftId
+          in: query
+          required: false
+          description: With action=guided_story, the Guided Story draft to price from its approved script.
+          schema:
+            type: integer
       responses:
         "200":
           description: Credit quote
@@ -13483,6 +13489,30 @@ paths:
                 $ref: "#/components/schemas/CreditQuote"
         "400":
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /credits/receipts/video-jobs/{jobId}:
+    get:
+      operationId: getVideoJobCreditReceipt
+      tags: [billing]
+      summary: What a video job was quoted and what it actually charged
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Credit receipt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJobCreditReceipt"
+        "404":
+          description: Not found
           content:
             application/json:
               schema:
@@ -13660,6 +13690,59 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/credit-spend-guard:
+    get:
+      operationId: adminGetCreditSpendGuard
+      tags: [admin]
+      summary: When paid actions must be confirmed before spending (superadmin only)
+      responses:
+        "200":
+          description: Spend guard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditSpendGuard"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateCreditSpendGuard
+      tags: [admin]
+      summary: Change the spend-confirmation thresholds (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditSpendGuard"
+      responses:
+        "200":
+          description: Updated spend guard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditSpendGuard"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Settings row not created yet
           content:
             application/json:
               schema:
@@ -16728,6 +16811,61 @@ components:
             $ref: "#/components/schemas/CreditHistoryEntry"
         legacyConversion:
           $ref: "#/components/schemas/LegacyConversionStatus"
+        spendGuard:
+          $ref: "#/components/schemas/CreditSpendGuard"
+    CreditSpendGuard:
+      type: object
+      required: [confirmAboveCredits, confirmAbovePercent]
+      description: >-
+        When one paid action must be confirmed before any credit is spent: when
+        it is quoted above confirmAboveCredits, or above confirmAbovePercent of
+        the current balance. 0 switches that threshold off.
+      properties:
+        confirmAboveCredits:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        confirmAbovePercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+    VideoJobCreditReceiptLine:
+      type: object
+      required: [rateKey, charged, refunded]
+      properties:
+        rateKey:
+          type: string
+        charged:
+          type: number
+        refunded:
+          type: number
+    VideoJobCreditReceipt:
+      type: object
+      required: [jobId, quoted, quotedLines, net, charged, refunded, lines, variancePercent]
+      properties:
+        jobId:
+          type: integer
+        quoted:
+          type: ["number", "null"]
+          description: Credits quoted at enqueue. Null for jobs from before quotes were frozen.
+        quotedLines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditQuoteLine"
+        net:
+          type: number
+          description: Charged minus refunded.
+        charged:
+          type: number
+        refunded:
+          type: number
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoJobCreditReceiptLine"
+        variancePercent:
+          type: ["number", "null"]
+          description: (net - quoted) / quoted, as a percentage.
     CreditAccountView:
       type: object
       required: [balance, history, legacyConversion]

@@ -5,8 +5,18 @@ import {
   listCreditHistory,
   isCreditFunded,
 } from "../lib/creditAccounts";
-import { quoteVideoJobCredits, quoteActionCredits } from "../lib/creditQuote";
-import { getMeterMode } from "../lib/creditRates";
+import {
+  quoteVideoJobCredits,
+  quoteActionCredits,
+  guidedDraftQuoteInput,
+} from "../lib/creditQuote";
+import { getMeterMode, getSpendGuard } from "../lib/creditRates";
+import { db, guidedStoryDraftsTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import {
+  getVideoJobCreditReceipt,
+  ReceiptNotFoundError,
+} from "../lib/creditReceipt";
 import { grantUnbilledPlanCreditsSafely } from "../lib/monthlyCreditGrant";
 import { getLegacyConversionStatus } from "../lib/creditMigration";
 
@@ -30,17 +40,20 @@ router.get("/credits", async (req: Request, res: Response) => {
   // here, lazily, once per calendar month. Idempotent, and best-effort: the
   // balance still reads correctly if it fails.
   await grantUnbilledPlanCreditsSafely(req.tenantId);
-  const [balance, history, mode, funded, legacyConversion] = await Promise.all([
+  const [balance, history, mode, funded, legacyConversion, spendGuard] = await Promise.all([
     peekCreditBalance(req.tenantId),
     listCreditHistory(req.tenantId, 50),
     getMeterMode(),
     isCreditFunded(req.tenantId),
     getLegacyConversionStatus(req.tenantId),
+    getSpendGuard(),
   ]);
   // `funded` is the server's own answer to "is this balance what pays for my
   // work right now", so the UI never has to recombine the meter mode and the
   // workspace's rail and risk disagreeing with what the backend enforces.
-  res.json({ ...balance, balance, mode, funded, history, legacyConversion });
+  // `spendGuard` tells every paid button when to ask "are you sure?" before
+  // spending, from one admin setting instead of a number baked into the UI.
+  res.json({ ...balance, balance, mode, funded, history, legacyConversion, spendGuard });
 });
 
 /**
@@ -61,6 +74,47 @@ router.get("/credits/quote", async (req: Request, res: Response) => {
   }
 
   const balance = await peekCreditBalance(req.tenantId);
+
+  if (action === "guided_story") {
+    // Priced from the approved script, not the request: the runtime, scene
+    // count and spoken lines are what the final render actually pays for.
+    const draftId = Number(req.query.draftId);
+    if (!Number.isSafeInteger(draftId) || draftId <= 0) {
+      res.status(400).json({ error: "A draftId is required" });
+      return;
+    }
+    const [draft] = await db
+      .select({ state: guidedStoryDraftsTable.state })
+      .from(guidedStoryDraftsTable)
+      .where(
+        and(
+          eq(guidedStoryDraftsTable.id, draftId),
+          eq(guidedStoryDraftsTable.tenantId, req.tenantId),
+        ),
+      )
+      .limit(1);
+    if (!draft) {
+      res.status(404).json({ error: "Guided story draft not found." });
+      return;
+    }
+    const input = guidedDraftQuoteInput(
+      { setup: draft.state.setup ?? null, script: draft.state.script ?? null },
+      { lipSync: req.query.lipSync === "true" },
+    );
+    if (!input) {
+      res.status(400).json({ error: "Approve a script before pricing the final video." });
+      return;
+    }
+    const quote = await quoteVideoJobCredits(input);
+    res.json({
+      credits: quote.credits,
+      lines: quote.lines,
+      balance: balance.total,
+      balanceAfter: Math.round((balance.total - quote.credits) * 1000) / 1000,
+      sufficient: balance.total >= quote.credits,
+    });
+    return;
+  }
 
   if (action === "video") {
     const durationSec = Number(req.query.durationSec);
@@ -104,5 +158,28 @@ router.get("/credits/quote", async (req: Request, res: Response) => {
     sufficient: balance.total >= credits,
   });
 });
+
+/**
+ * GET /credits/receipts/video-jobs/:jobId — quoted vs charged for one video.
+ *
+ * Read from the ledger the meter writes, so it includes retries and refunds:
+ * the honest answer to "why did this cost more than it said".
+ */
+router.get(
+  "/credits/receipts/video-jobs/:jobId",
+  async (req: Request, res: Response) => {
+    try {
+      res.json(
+        await getVideoJobCreditReceipt(req.tenantId, Number(req.params.jobId)),
+      );
+    } catch (error) {
+      if (error instanceof ReceiptNotFoundError) {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+  },
+);
 
 export default router;

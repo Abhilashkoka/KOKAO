@@ -43529,6 +43529,14 @@ export const AdminUpdateSignupCreditSettingsResponse = zod.object({
 /**
  * @summary This workspace's credit balance, meter mode and recent history
  */
+export const getCreditsResponseSpendGuardConfirmAboveCreditsMin = 0;
+export const getCreditsResponseSpendGuardConfirmAboveCreditsMax = 1000000;
+
+export const getCreditsResponseSpendGuardConfirmAbovePercentMin = 0;
+export const getCreditsResponseSpendGuardConfirmAbovePercentMax = 100;
+
+
+
 export const GetCreditsResponse = zod.object({
   "purchased": zod.number(),
   "granted": zod.number(),
@@ -43559,7 +43567,11 @@ export const GetCreditsResponse = zod.object({
   "captionCredits": zod.number(),
   "imageCredits": zod.number(),
   "videoCredits": zod.number()
-})
+}),
+  "spendGuard": zod.object({
+  "confirmAboveCredits": zod.number().min(getCreditsResponseSpendGuardConfirmAboveCreditsMin).max(getCreditsResponseSpendGuardConfirmAboveCreditsMax),
+  "confirmAbovePercent": zod.number().min(getCreditsResponseSpendGuardConfirmAbovePercentMin).max(getCreditsResponseSpendGuardConfirmAbovePercentMax)
+}).optional().describe('When one paid action must be confirmed before any credit is spent: when it is quoted above confirmAboveCredits, or above confirmAbovePercent of the current balance. 0 switches that threshold off.')
 })
 
 
@@ -43567,13 +43579,14 @@ export const GetCreditsResponse = zod.object({
  * @summary What a generation will cost in credits, before it starts
  */
 export const QuoteCreditsQueryParams = zod.object({
-  "action": zod.coerce.string().describe('A rate key (image, caption, ...) or \"video\" for a whole job.'),
+  "action": zod.coerce.string().describe('A rate key (image, caption, ...), \"video\" for a whole job, or \"guided_story\" with draftId.'),
   "quantity": zod.coerce.number().optional(),
   "durationSec": zod.coerce.number().optional(),
   "sceneCount": zod.coerce.number().optional(),
   "resolution": zod.coerce.string().optional(),
   "narrated": zod.coerce.boolean().optional(),
-  "lipSync": zod.coerce.boolean().optional()
+  "lipSync": zod.coerce.boolean().optional(),
+  "draftId": zod.coerce.number().optional().describe('With action=guided_story, the Guided Story draft to price from its approved script.')
 })
 
 export const QuoteCreditsResponse = zod.object({
@@ -43586,6 +43599,33 @@ export const QuoteCreditsResponse = zod.object({
   "balance": zod.number(),
   "balanceAfter": zod.number(),
   "sufficient": zod.boolean()
+})
+
+
+/**
+ * @summary What a video job was quoted and what it actually charged
+ */
+export const GetVideoJobCreditReceiptParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetVideoJobCreditReceiptResponse = zod.object({
+  "jobId": zod.number(),
+  "quoted": zod.number().nullable().describe('Credits quoted at enqueue. Null for jobs from before quotes were frozen.'),
+  "quotedLines": zod.array(zod.object({
+  "rateKey": zod.string(),
+  "quantity": zod.number(),
+  "credits": zod.number()
+})),
+  "net": zod.number().describe('Charged minus refunded.'),
+  "charged": zod.number(),
+  "refunded": zod.number(),
+  "lines": zod.array(zod.object({
+  "rateKey": zod.string(),
+  "charged": zod.number(),
+  "refunded": zod.number()
+})),
+  "variancePercent": zod.number().nullable().describe('(net - quoted) \/ quoted, as a percentage.')
 })
 
 
@@ -43799,6 +43839,53 @@ export const AdminUpdateCreditRatesResponse = zod.object({
 }).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.')),
   "creditPricePaise": zod.number().min(1).max(adminUpdateCreditRatesResponseCreditPricePaiseMax).describe('Rupees per one credit, in paise. For example 4500 means ₹45 = 1 credit and ₹1 = 0.0222 credits. Used for legacy rupee-wallet migration only; purchased packs retain their explicit credits.')
 })
+
+
+/**
+ * @summary When paid actions must be confirmed before spending (superadmin only)
+ */
+export const adminGetCreditSpendGuardResponseConfirmAboveCreditsMin = 0;
+export const adminGetCreditSpendGuardResponseConfirmAboveCreditsMax = 1000000;
+
+export const adminGetCreditSpendGuardResponseConfirmAbovePercentMin = 0;
+export const adminGetCreditSpendGuardResponseConfirmAbovePercentMax = 100;
+
+
+
+export const AdminGetCreditSpendGuardResponse = zod.object({
+  "confirmAboveCredits": zod.number().min(adminGetCreditSpendGuardResponseConfirmAboveCreditsMin).max(adminGetCreditSpendGuardResponseConfirmAboveCreditsMax),
+  "confirmAbovePercent": zod.number().min(adminGetCreditSpendGuardResponseConfirmAbovePercentMin).max(adminGetCreditSpendGuardResponseConfirmAbovePercentMax)
+}).describe('When one paid action must be confirmed before any credit is spent: when it is quoted above confirmAboveCredits, or above confirmAbovePercent of the current balance. 0 switches that threshold off.')
+
+
+/**
+ * @summary Change the spend-confirmation thresholds (superadmin only)
+ */
+export const adminUpdateCreditSpendGuardBodyConfirmAboveCreditsMin = 0;
+export const adminUpdateCreditSpendGuardBodyConfirmAboveCreditsMax = 1000000;
+
+export const adminUpdateCreditSpendGuardBodyConfirmAbovePercentMin = 0;
+export const adminUpdateCreditSpendGuardBodyConfirmAbovePercentMax = 100;
+
+
+
+export const AdminUpdateCreditSpendGuardBody = zod.object({
+  "confirmAboveCredits": zod.number().min(adminUpdateCreditSpendGuardBodyConfirmAboveCreditsMin).max(adminUpdateCreditSpendGuardBodyConfirmAboveCreditsMax),
+  "confirmAbovePercent": zod.number().min(adminUpdateCreditSpendGuardBodyConfirmAbovePercentMin).max(adminUpdateCreditSpendGuardBodyConfirmAbovePercentMax)
+}).describe('When one paid action must be confirmed before any credit is spent: when it is quoted above confirmAboveCredits, or above confirmAbovePercent of the current balance. 0 switches that threshold off.')
+
+export const adminUpdateCreditSpendGuardResponseConfirmAboveCreditsMin = 0;
+export const adminUpdateCreditSpendGuardResponseConfirmAboveCreditsMax = 1000000;
+
+export const adminUpdateCreditSpendGuardResponseConfirmAbovePercentMin = 0;
+export const adminUpdateCreditSpendGuardResponseConfirmAbovePercentMax = 100;
+
+
+
+export const AdminUpdateCreditSpendGuardResponse = zod.object({
+  "confirmAboveCredits": zod.number().min(adminUpdateCreditSpendGuardResponseConfirmAboveCreditsMin).max(adminUpdateCreditSpendGuardResponseConfirmAboveCreditsMax),
+  "confirmAbovePercent": zod.number().min(adminUpdateCreditSpendGuardResponseConfirmAbovePercentMin).max(adminUpdateCreditSpendGuardResponseConfirmAbovePercentMax)
+}).describe('When one paid action must be confirmed before any credit is spent: when it is quoted above confirmAboveCredits, or above confirmAbovePercent of the current balance. 0 switches that threshold off.')
 
 
 /**

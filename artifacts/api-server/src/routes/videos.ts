@@ -423,6 +423,11 @@ import {
 } from "../lib/videoGen/guidedStory";
 import { refuseIfShortOfCredits } from "../lib/creditPreflight";
 import {
+  guidedDraftQuoteInput,
+  quoteVideoJobCredits,
+  type VideoJobQuoteInput,
+} from "../lib/creditQuote";
+import {
   captureAssetProvenance,
   summarizeProvenance,
   sha256Hex,
@@ -10835,6 +10840,13 @@ router.post(
     };
     res.locals.guidedStoryEnqueue = true;
     res.locals.guidedBrandEndingApproval = endingApproval;
+    // Price the preflight from the approved script. The body above carries no
+    // duration or paragraph count, so without this every guided story was
+    // checked as a 5-second, 4-scene job.
+    res.locals.guidedQuoteInput = guidedDraftQuoteInput(
+      { setup: row.state.setup ?? null, script: row.state.script ?? null },
+      { lipSync: parsed.data.studioLipSync === true },
+    );
     await generateVideoHandler(req, res);
     if (res.statusCode >= 400) {
       const current = await loadGuidedDraft(req.tenantId, row.id);
@@ -10925,17 +10937,36 @@ async function generateVideoHandler(
   // half-rendered job and a confused user. No-op unless the meter is
   // enforcing, and it fails open — a preflight problem must never block a
   // generation the money side would have allowed.
-  if (
-    await refuseIfShortOfCredits(res, req.tenantId, {
+  const creditQuoteInput: VideoJobQuoteInput =
+    (res.locals.guidedStoryEnqueue === true
+      ? (res.locals.guidedQuoteInput as VideoJobQuoteInput | null | undefined)
+      : null) ?? {
       durationSec: body.durationSec ?? 5,
       // The body carries flat fields, not a VideoJobOptions; paragraphCount is
       // what drives scene count for the character and b-roll engines.
       sceneCount: Math.max(1, (body.paragraphCount ?? 1) * 4),
       resolution: body.resolution ?? null,
       narrated: body.engine === "topic_to_video",
-    })
-  ) {
+    };
+  if (await refuseIfShortOfCredits(res, req.tenantId, creditQuoteInput)) {
     return;
+  }
+  // Freeze what this job was quoted, so its receipt can show quoted vs
+  // charged even after the rate card changes. Best-effort: a quote that
+  // cannot be computed must never block a generation.
+  let frozenCreditQuote: VideoJobOptions["creditQuote"];
+  // A slideshow makes no AI calls; freezing a video quote on it would show a
+  // price on its receipt that was never going to be charged.
+  if (body.engine !== "slideshow") try {
+    const quote = await quoteVideoJobCredits(creditQuoteInput);
+    frozenCreditQuote = {
+      version: 1,
+      credits: quote.credits,
+      lines: quote.lines,
+      quotedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    req.log.warn({ err }, "Could not freeze the credit quote on the video job");
   }
 
   let guidedDraft: GuidedStoryDraft | null = null;
@@ -12548,6 +12579,7 @@ async function generateVideoHandler(
     return;
   }
   const options: FrozenOutroJobOptions = {
+    ...(frozenCreditQuote ? { creditQuote: frozenCreditQuote } : {}),
     ...(uploadedReferences ? {
       referenceImages: uploadedReferences.references,
       referenceImageSelection: uploadedReferences.selection,

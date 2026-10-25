@@ -7,6 +7,7 @@
  */
 import type { CreditBalance } from './creditBalance';
 import type { CreditHistoryEntry } from './creditHistoryEntry';
+import type { CreditSpendGuard } from './creditSpendGuard';
 import type { LegacyConversionStatus } from './legacyConversionStatus';
 
 export interface CreditWallet {
@@ -21,4 +22,5 @@ export interface CreditWallet {
   funded?: boolean;
   history: CreditHistoryEntry[];
   legacyConversion: LegacyConversionStatus;
+  spendGuard?: CreditSpendGuard;
 }

@@ -2046,6 +2046,22 @@ export interface LegacyConversionStatus {
   videoCredits: number;
 }
 
+/**
+ * When one paid action must be confirmed before any credit is spent: when it is quoted above confirmAboveCredits, or above confirmAbovePercent of the current balance. 0 switches that threshold off.
+ */
+export interface CreditSpendGuard {
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
+  confirmAboveCredits: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  confirmAbovePercent: number;
+}
+
 export interface CreditWallet {
   purchased: number;
   granted: number;
@@ -2058,6 +2074,39 @@ export interface CreditWallet {
   funded?: boolean;
   history: CreditHistoryEntry[];
   legacyConversion: LegacyConversionStatus;
+  spendGuard?: CreditSpendGuard;
+}
+
+export interface VideoJobCreditReceiptLine {
+  rateKey: string;
+  charged: number;
+  refunded: number;
+}
+
+export interface CreditQuoteLine {
+  rateKey: string;
+  quantity: number;
+  credits: number;
+}
+
+export interface VideoJobCreditReceipt {
+  jobId: number;
+  /**
+     * Credits quoted at enqueue. Null for jobs from before quotes were frozen.
+     * @nullable
+     */
+  quoted: number | null;
+  quotedLines: CreditQuoteLine[];
+  /** Charged minus refunded. */
+  net: number;
+  charged: number;
+  refunded: number;
+  lines: VideoJobCreditReceiptLine[];
+  /**
+     * (net - quoted) / quoted, as a percentage.
+     * @nullable
+     */
+  variancePercent: number | null;
 }
 
 export interface CreditAccountView {
@@ -2206,12 +2255,6 @@ export interface QuickCreatePreset {
   musicPrompt: string | null;
   published: boolean;
   sortOrder: number;
-}
-
-export interface CreditQuoteLine {
-  rateKey: string;
-  quantity: number;
-  credits: number;
 }
 
 export interface CreditQuote {
@@ -16149,7 +16192,7 @@ datePreset?: AdsDatePresetParameter;
 
 export type QuoteCreditsParams = {
 /**
- * A rate key (image, caption, ...) or "video" for a whole job.
+ * A rate key (image, caption, ...), "video" for a whole job, or "guided_story" with draftId.
  */
 action: string;
 quantity?: number;
@@ -16158,6 +16201,10 @@ sceneCount?: number;
 resolution?: string;
 narrated?: boolean;
 lipSync?: boolean;
+/**
+ * With action=guided_story, the Guided Story draft to price from its approved script.
+ */
+draftId?: number;
 };
 
 export type AdminGetCreditMeterReportParams = {

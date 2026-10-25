@@ -1,4 +1,9 @@
-import { getGetCreditsQueryKey, useGetCredits } from "@workspace/api-client-react";
+import {
+  getGetCreditsQueryKey,
+  getQuoteCreditsQueryKey,
+  useGetCredits,
+  useQuoteCredits,
+} from "@workspace/api-client-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +40,87 @@ export function useCreditFunding() {
     isLoading,
     isError,
   };
+}
+
+/**
+ * The yardstick for "what do my credits buy": a typical 30-second, 4-scene,
+ * narrated video, priced live from the rate card. Changing a rate in admin
+ * changes every "≈ N videos" line with no deploy.
+ */
+export const REFERENCE_VIDEO = {
+  action: "video",
+  durationSec: 30,
+  sceneCount: 4,
+  narrated: true,
+} as const;
+
+/** Credits for one reference video and one image, from the live rate card. */
+export function useCreditValue(enabled = true): {
+  videoCredits: number | null;
+  imageCredits: number | null;
+} {
+  const imageParams = { action: "image" };
+  const { data: video } = useQuoteCredits(REFERENCE_VIDEO, {
+    query: {
+      queryKey: getQuoteCreditsQueryKey(REFERENCE_VIDEO),
+      enabled,
+      staleTime: 60_000,
+    },
+  });
+  const { data: image } = useQuoteCredits(imageParams, {
+    query: {
+      queryKey: getQuoteCreditsQueryKey(imageParams),
+      enabled,
+      staleTime: 60_000,
+    },
+  });
+  return {
+    videoCredits: video && video.credits > 0 ? video.credits : null,
+    imageCredits: image && image.credits > 0 ? image.credits : null,
+  };
+}
+
+/**
+ * "≈ 12 videos of 30s, or ≈ 600 images" for a credit amount. Null when the
+ * rate card cannot price it yet.
+ */
+export function describeCreditValue(
+  credits: number,
+  value: { videoCredits: number | null; imageCredits: number | null },
+): string | null {
+  if (!(credits > 0)) return null;
+  const parts: string[] = [];
+  if (value.videoCredits) {
+    const videos = Math.floor(credits / value.videoCredits);
+    parts.push(`≈ ${videos.toLocaleString("en-IN")} video${videos === 1 ? "" : "s"} of 30s`);
+  }
+  if (value.imageCredits) {
+    const images = Math.floor(credits / value.imageCredits);
+    parts.push(`≈ ${images.toLocaleString("en-IN")} image${images === 1 ? "" : "s"}`);
+  }
+  return parts.length ? parts.join(", or ") : null;
+}
+
+/** One quiet line under a balance or a plan: what that many credits buys. */
+export function CreditValueLine({
+  credits,
+  suffix,
+  testId = "text-credit-value",
+}: {
+  credits: number;
+  suffix?: string;
+  testId?: string;
+}) {
+  const value = useCreditValue(credits > 0);
+  const text = describeCreditValue(credits, value);
+  if (!text) return null;
+  return (
+    <p className="text-xs text-muted-foreground" data-testid={testId}>
+      {text}
+      {suffix ? ` ${suffix}` : ""}. A 30s video here means 4 scenes with
+      narration; longer or HD videos use more.
+    </p>
+  );
 }
 
 function creditHistoryLabel(kind: string): string {
@@ -111,6 +197,7 @@ export function CreditUsageCard() {
           <div className="text-4xl font-bold tracking-tight tabular-nums">
             {total.toFixed(total < 10 ? 1 : 0)}
           </div>
+          {creditFunded && total > 0 && <div className="mt-1"><CreditValueLine credits={total} /></div>}
           <p className="text-xs text-muted-foreground mt-1">
             {creditFunded
               ? "Spent on whatever you generate — video, images, captions, voice."
@@ -231,6 +318,30 @@ export function CreditBalancePill() {
   );
 }
 
+/** Plain-language names for rate-card keys, so a quote reads like a bill. */
+export function creditRateLabel(rateKey: string): string {
+  switch (rateKey) {
+    case "video":
+      return "Video (per second)";
+    case "video_hd":
+      return "HD video (per second)";
+    case "image":
+      return "Scene images";
+    case "image_edit":
+      return "Image edits";
+    case "caption":
+      return "Script & writing";
+    case "voice":
+      return "Voice (per second)";
+    case "lipsync":
+      return "Lip sync (per second)";
+    case "transcription":
+      return "Transcription";
+    default:
+      return rateKey.replace(/_/g, " ");
+  }
+}
+
 export interface CreditQuoteLineView {
   rateKey: string;
   quantity: number;
@@ -276,10 +387,14 @@ export function CreditQuoteSummary({
         <ul className="space-y-1 border-t border-border pt-2 text-xs text-muted-foreground">
           {lines.map((line) => (
             <li key={line.rateKey} className="flex justify-between gap-3">
-              <span className="font-mono">{line.rateKey}</span>
+              <span>
+                {creditRateLabel(line.rateKey)}
+                <span className="tabular-nums">
+                  {" "}× {line.quantity.toFixed(line.quantity < 10 ? 1 : 0)}
+                </span>
+              </span>
               <span className="tabular-nums">
-                {line.quantity.toFixed(line.quantity < 10 ? 1 : 0)} × ={" "}
-                {line.credits.toFixed(2)}
+                {line.credits.toFixed(line.credits < 10 ? 1 : 0)}
               </span>
             </li>
           ))}

@@ -238,6 +238,7 @@ import {
   AdminUpdatePromoCodeBody,
   AdminUpdateSignupCreditSettingsBody,
   AdminUpdateCreditRatesBody,
+  AdminUpdateCreditSpendGuardBody,
   AdminGrantCreditAccountBody,
   AdminUpdateWalletSettingsBody,
   AdminUpdateTenantBillingModeBody,
@@ -327,6 +328,10 @@ import {
   listCreditRates,
   getMeterMode,
   getCreditPricePaise,
+  getSpendGuard,
+  setSpendGuard,
+  SpendGuardNotReadyError,
+  type SpendGuard,
   replaceCreditRateCard,
   validateCreditRateCard,
   CreditRateCardValidationError,
@@ -5801,6 +5806,58 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
       });
     } catch (error) {
       req.log.error({ err: error }, "Failed to write credit-rates audit log");
+    }
+  }
+  res.json(after);
+});
+
+/**
+ * GET /admin/credit-spend-guard — when a paid action must be confirmed.
+ */
+router.get("/admin/credit-spend-guard", async (_req: Request, res: Response) => {
+  res.json(await getSpendGuard());
+});
+
+/**
+ * PUT /admin/credit-spend-guard — change the confirm thresholds (audited).
+ *
+ * One action quoted above `confirmAboveCredits`, or above
+ * `confirmAbovePercent` of the workspace's balance, shows a confirm dialog
+ * before anything is charged. 0 switches that threshold off.
+ */
+router.put("/admin/credit-spend-guard", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateCreditSpendGuardBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await getSpendGuard();
+  let after: SpendGuard;
+  try {
+    after = await setSpendGuard(parsed.data);
+  } catch (error) {
+    if (error instanceof SpendGuardNotReadyError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Invalid spend guard.",
+    });
+    return;
+  }
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    try {
+      await recordAdminAction({
+        action: "credit_spend_guard_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: JSON.stringify(before),
+        newValue: JSON.stringify(after),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write spend-guard audit log");
     }
   }
   res.json(after);

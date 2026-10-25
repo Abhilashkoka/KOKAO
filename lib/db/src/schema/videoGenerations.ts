@@ -320,6 +320,18 @@ export interface FrozenSemanticReview {
   }>;
 }
 export interface VideoJobOptions {
+  /**
+   * The credit quote shown to the user (and checked by the preflight) when
+   * this job was enqueued. Frozen so the receipt can show quoted vs charged
+   * even after the rate card changes. Retries of the same job keep it, so a
+   * retry shows up as charged-above-quote rather than as a new quote.
+   */
+  creditQuote?: {
+    version: 1;
+    credits: number;
+    lines: Array<{ rateKey: string; quantity: number; credits: number }>;
+    quotedAt: string;
+  };
   /** Durable rejection tombstone and provider cleanup outbox. Never copied into a new attempt. */
   storyboardRejection?: {
     version: 1;
