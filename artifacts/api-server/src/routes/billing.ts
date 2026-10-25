@@ -40,6 +40,8 @@ import {
   createCashfreeOrder,
   getCashfreeOrder,
   isCashfreeEntitledStatus,
+  addBillingCycle,
+  cashfreePaidPeriodEnd,
   rupeesToPaise,
   CashfreeNotConfiguredError,
   CashfreeApiError,
@@ -326,9 +328,14 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
     }
     try {
       const creds = await getCashfreeCredentials();
+      // Anchor billing to this user's purchase date: pay cycle 1 now, first
+      // recurring debit exactly one cycle later (same day each month/year).
+      const firstChargeTime = addBillingCycle(new Date(), cycle).toISOString();
       const cfSub = await createCashfreeSubscription({
         planId: cfPlanId,
         customer: { id: `t${req.tenantId}`, email: req.tenantEmail },
+        firstChargeTime,
+        firstCyclePaise: cyclePrice,
         tags: {
           tenantId: String(req.tenantId),
           planId: plan.id,
@@ -488,9 +495,7 @@ router.post(
           });
           return;
         }
-        const periodEnd = live.current_cycle?.cycle_end_time
-          ? new Date(live.current_cycle.cycle_end_time)
-          : null;
+        const periodEnd = cashfreePaidPeriodEnd(live);
         await db
           .update(subscriptionsTable)
           .set({
