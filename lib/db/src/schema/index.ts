@@ -65,5 +65,6 @@ export * from "./invoices";
 export * from "./supportRequests";
 export * from "./creditRates";
 export * from "./creditAccounts";
+export * from "./goodwill";
 export * from "./videoPublishes";
 export * from "./quickCreatePresets";

@@ -424,9 +424,15 @@ import {
 import { refuseIfShortOfCredits } from "../lib/creditPreflight";
 import {
   guidedDraftQuoteInput,
+  quoteActionCredits,
   quoteVideoJobCredits,
   type VideoJobQuoteInput,
 } from "../lib/creditQuote";
+import {
+  applySmartEditGoodwill,
+  claimGoodwill,
+  goodwillAvailability,
+} from "../lib/goodwill";
 import {
   captureAssetProvenance,
   summarizeProvenance,
@@ -10948,7 +10954,14 @@ async function generateVideoHandler(
       resolution: body.resolution ?? null,
       narrated: body.engine === "topic_to_video",
     };
-  if (await refuseIfShortOfCredits(res, req.tenantId, creditQuoteInput)) {
+  // A Smart Edit regeneration was already priced and preflighted by its
+  // parent route (with any free seconds applied); the generic topic-video
+  // quote would price it as a 4-scene job and refuse it.
+  const isSmartEditChild = res.locals.smartEditLink != null;
+  if (
+    !isSmartEditChild &&
+    (await refuseIfShortOfCredits(res, req.tenantId, creditQuoteInput))
+  ) {
     return;
   }
   // Freeze what this job was quoted, so its receipt can show quoted vs
@@ -10957,7 +10970,7 @@ async function generateVideoHandler(
   let frozenCreditQuote: VideoJobOptions["creditQuote"];
   // A slideshow makes no AI calls; freezing a video quote on it would show a
   // price on its receipt that was never going to be charged.
-  if (body.engine !== "slideshow") try {
+  if (body.engine !== "slideshow" && !isSmartEditChild) try {
     const quote = await quoteVideoJobCredits(creditQuoteInput);
     frozenCreditQuote = {
       version: 1,
@@ -14465,6 +14478,16 @@ async function updateSmartEditState(
   });
 }
 
+/** What is still free on this video: storyboard image redos and Smart Edit seconds. */
+router.get("/ai/video-jobs/:jobId/goodwill", async (req: Request, res: Response) => {
+  const job = await loadJob(req);
+  if (!job) {
+    res.status(404).json({ error: "Video not found." });
+    return;
+  }
+  res.json(await goodwillAvailability(req.tenantId, job.id));
+});
+
 router.get("/ai/video-jobs/:jobId/smart-edit", async (req: Request, res: Response) => {
   const job = await loadJob(req);
   if (!job || job.options?.smartEditOf) {
@@ -14495,7 +14518,8 @@ router.post("/ai/video-jobs/:jobId/smart-edit/quote", async (req: Request, res: 
     throw error;
   }
   const endFrame = request.type !== "dialogue" ? await smartEditEndFrameModel() : null;
-  res.json(await quoteSmartEdit(request, Boolean(endFrame)));
+  const quote = await quoteSmartEdit(request, Boolean(endFrame));
+  res.json(applySmartEditGoodwill(quote, request.type, await goodwillAvailability(req.tenantId, job.id)));
 });
 
 router.post("/ai/video-jobs/:jobId/smart-edit/edits", async (req: Request, res: Response) => {
@@ -14570,10 +14594,14 @@ router.post("/ai/video-jobs/:jobId/smart-edit/edits", async (req: Request, res: 
   // Prepaid credits: stop before the first paid call when the balance can't cover it.
   try {
     if ((await getMeterMode()) === "enforce") {
-      const [quote, balance] = await Promise.all([
+      const [fullQuote, balance, availability] = await Promise.all([
         quoteSmartEdit(request, Boolean(endFrameModel)),
         peekCreditBalance(req.tenantId),
+        goodwillAvailability(req.tenantId, job.id),
       ]);
+      // The free part is granted just before the edit starts, so only the
+      // paid part has to be on the balance now.
+      const quote = applySmartEditGoodwill(fullQuote, request.type, availability);
       if (quote.credits > balance.total) {
         res.status(402).json({
           error: `This edit needs about ${quote.credits.toFixed(1)} credits and you have ${balance.total.toFixed(1)}. Top up to continue.`,
@@ -14587,6 +14615,29 @@ router.post("/ai/video-jobs/:jobId/smart-edit/edits", async (req: Request, res: 
     }
   } catch (error) {
     req.log.warn({ err: error }, "Smart Edit credit preflight failed; continuing");
+  }
+
+  // The first picture edit of a video is free up to the goodwill seconds.
+  // Granted now, before the first paid call, so the meter charges the edit as
+  // usual and the balance only moves by the part above the free seconds.
+  if (request.type !== "dialogue") {
+    try {
+      const freeQuote = applySmartEditGoodwill(
+        await quoteSmartEdit(request, Boolean(endFrameModel)),
+        request.type,
+        await goodwillAvailability(req.tenantId, job.id),
+      );
+      if (freeQuote.freeCredits > 0) {
+        await claimGoodwill(
+          req.tenantId,
+          { kind: "smart_edit", jobId: job.id },
+          freeQuote.freeCredits,
+          `Free Smart Edit (first ${freeQuote.freeSeconds}s)`,
+        );
+      }
+    } catch (error) {
+      req.log.warn({ err: error, jobId: job.id }, "Smart Edit goodwill could not be applied; charging normally");
+    }
   }
 
   const editId = newSmartEditId();
@@ -18739,6 +18790,12 @@ router.post(
         );
     };
 
+    await claimGoodwill(
+      req.tenantId,
+      { kind: "image_redo", jobId: job.id },
+      (await quoteActionCredits("image", 1)) ?? 0,
+      "Free storyboard image redo",
+    );
     const fresh = claimed.storyboard;
     const freshScene = fresh.scenes.find((s) => s.id === scene.id) ?? scene;
     let updated;
@@ -19084,6 +19141,14 @@ router.post(
       return;
     }
 
+    // Free storyboard image redos: the first N per video are credited before
+    // the paid call, so the meter still records the real cost.
+    await claimGoodwill(
+      req.tenantId,
+      { kind: "image_redo", jobId },
+      (await quoteActionCredits("image", 1)) ?? 0,
+      "Free storyboard image redo",
+    );
     const funding = await reserveImageFunding(req);
     if (!funding) {
       res.status(402).json({

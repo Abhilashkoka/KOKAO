@@ -34,6 +34,8 @@ import {
   useRenderMissingGuidedStoryPreviews,
   useCancelGuidedStoryPreviewRender,
   useCorrectGuidedStoryScene,
+  useGetVideoJobGoodwill,
+  getGetVideoJobGoodwillQueryKey,
   useGetGuidedStoryDraft,
   useCreateGuidedStoryReference,
   useFinalizeGuidedStoryReference,
@@ -9505,10 +9507,22 @@ function StoryboardReview({
     },
   });
 
+  // Free storyboard image redos left on this video (goodwill). The server
+  // decides; this only labels the buttons so the user knows before clicking.
+  const { data: goodwill } = useGetVideoJobGoodwill(job.id, {
+    query: {
+      queryKey: getGetVideoJobGoodwillQueryKey(job.id),
+      staleTime: 10_000,
+    },
+  });
+  const freeRedo = Boolean(goodwill?.active && goodwill.imageRedosLeft > 0);
   const settle = (updated: VideoJob) => {
     queryClient.setQueryData(getGetVideoJobQueryKey(job.id), updated);
     void queryClient.invalidateQueries({
       queryKey: getListVideoJobsQueryKey(),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: getGetVideoJobGoodwillQueryKey(job.id),
     });
   };
   const fail = (title: string) => (error: unknown) =>
@@ -10463,7 +10477,7 @@ function StoryboardReview({
                       data-testid={`button-redraw-${scene.id}`}
                     >
                       <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                      {rolling ? "Redrawing…" : "Redraw"}
+                      {rolling ? "Redrawing…" : freeRedo ? "Redraw · free" : "Redraw"}
                     </Button>
                   )}
                   {!guidedStoryboard && dirty && (
@@ -10492,7 +10506,7 @@ function StoryboardReview({
                       data-testid={`button-correct-scene-${scene.id}`}
                     >
                       <Wrench className="h-3.5 w-3.5 mr-1.5" />
-                      Correct scene
+                      {freeRedo ? "Correct scene · free" : "Correct scene"}
                     </Button>
                   )}
                   <Button
@@ -10686,7 +10700,11 @@ function StoryboardReview({
               }}
               data-testid="button-confirm-guided-correction"
             >
-              {correctGuidedScene.isPending ? "Queuing…" : "Replace this preview"}
+              {correctGuidedScene.isPending
+                ? "Queuing…"
+                : freeRedo
+                  ? "Replace this preview · free"
+                  : "Replace this preview"}
             </Button>
           </DialogFooter>
         </DialogContent>

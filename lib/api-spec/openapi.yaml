@@ -8670,6 +8670,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/goodwill:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getVideoJobGoodwill
+      tags: [ai]
+      summary: What is still free on this video (storyboard image redos, Smart Edit seconds)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoodwillAvailability"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/smart-edit:
     parameters:
       - name: jobId
@@ -13694,6 +13718,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/goodwill-settings:
+    get:
+      operationId: adminGetGoodwillSettings
+      tags: [admin]
+      summary: Free-fix (goodwill) settings (superadmin only)
+      responses:
+        "200":
+          description: Goodwill settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoodwillSettings"
+    put:
+      operationId: adminUpdateGoodwillSettings
+      tags: [admin]
+      summary: Change the free-fix (goodwill) settings (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoodwillSettings"
+      responses:
+        "200":
+          description: Updated goodwill settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoodwillSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/goodwill-report:
+    get:
+      operationId: adminGetGoodwillReport
+      tags: [admin]
+      summary: What free fixes cost today and this month (superadmin only)
+      responses:
+        "200":
+          description: Goodwill report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoodwillReport"
   /admin/credit-spend-guard:
     get:
       operationId: adminGetCreditSpendGuard
@@ -16813,6 +16884,63 @@ components:
           $ref: "#/components/schemas/LegacyConversionStatus"
         spendGuard:
           $ref: "#/components/schemas/CreditSpendGuard"
+    GoodwillAvailability:
+      type: object
+      required: [active, imageRedosLeft, smartEditFreeSeconds, smartEditFreeAvailable, monthlyBudgetLeft]
+      properties:
+        active:
+          type: boolean
+          description: False when goodwill is off or the workspace is not paying in credits.
+        imageRedosLeft:
+          type: integer
+        smartEditFreeSeconds:
+          type: integer
+        smartEditFreeAvailable:
+          type: boolean
+        monthlyBudgetLeft:
+          type: number
+    GoodwillSettings:
+      type: object
+      required: [enabled, freeImageRedosPerVideo, freeSmartEditSeconds, monthlyBudgetCredits, dailyAlarmCredits]
+      properties:
+        enabled:
+          type: boolean
+        freeImageRedosPerVideo:
+          type: integer
+          minimum: 0
+          maximum: 20
+        freeSmartEditSeconds:
+          type: integer
+          minimum: 0
+          maximum: 12
+        monthlyBudgetCredits:
+          type: integer
+          minimum: 0
+        dailyAlarmCredits:
+          type: integer
+          minimum: 0
+    GoodwillReport:
+      type: object
+      required: [todayCredits, monthCredits, monthFixes, topWorkspaces]
+      properties:
+        todayCredits:
+          type: number
+        monthCredits:
+          type: number
+        monthFixes:
+          type: integer
+        topWorkspaces:
+          type: array
+          items:
+            type: object
+            required: [tenantId, credits, fixes]
+            properties:
+              tenantId:
+                type: integer
+              credits:
+                type: number
+              fixes:
+                type: integer
     CreditSpendGuard:
       type: object
       required: [confirmAboveCredits, confirmAbovePercent]
@@ -21227,7 +21355,17 @@ components:
       type: object
       required: [credits, lines]
       properties:
-        credits: { type: number }
+        credits:
+          type: number
+          description: What the user will pay, after any free seconds.
+        fullCredits:
+          type: number
+          description: The whole edit before goodwill.
+        freeCredits:
+          type: number
+          description: Credits KOKAO pays for (first free seconds of the video's first picture edit).
+        freeSeconds:
+          type: number
         lines:
           type: array
           items:

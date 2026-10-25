@@ -2077,6 +2077,46 @@ export interface CreditWallet {
   spendGuard?: CreditSpendGuard;
 }
 
+export interface GoodwillAvailability {
+  /** False when goodwill is off or the workspace is not paying in credits. */
+  active: boolean;
+  imageRedosLeft: number;
+  smartEditFreeSeconds: number;
+  smartEditFreeAvailable: boolean;
+  monthlyBudgetLeft: number;
+}
+
+export interface GoodwillSettings {
+  enabled: boolean;
+  /**
+     * @minimum 0
+     * @maximum 20
+     */
+  freeImageRedosPerVideo: number;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  freeSmartEditSeconds: number;
+  /** @minimum 0 */
+  monthlyBudgetCredits: number;
+  /** @minimum 0 */
+  dailyAlarmCredits: number;
+}
+
+export type GoodwillReportTopWorkspacesItem = {
+  tenantId: number;
+  credits: number;
+  fixes: number;
+};
+
+export interface GoodwillReport {
+  todayCredits: number;
+  monthCredits: number;
+  monthFixes: number;
+  topWorkspaces: GoodwillReportTopWorkspacesItem[];
+}
+
 export interface VideoJobCreditReceiptLine {
   rateKey: string;
   charged: number;
@@ -6660,7 +6700,13 @@ export type SmartEditQuoteLinesItem = {
 };
 
 export interface SmartEditQuote {
+  /** What the user will pay, after any free seconds. */
   credits: number;
+  /** The whole edit before goodwill. */
+  fullCredits?: number;
+  /** Credits KOKAO pays for (first free seconds of the video's first picture edit). */
+  freeCredits?: number;
+  freeSeconds?: number;
   lines: SmartEditQuoteLinesItem[];
 }
 

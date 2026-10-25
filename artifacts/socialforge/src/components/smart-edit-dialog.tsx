@@ -362,6 +362,7 @@ export function SmartEditDialog({
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
+  const [freeSeconds, setFreeSeconds] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const data = state.data;
@@ -391,7 +392,16 @@ export function SmartEditDialog({
     const timer = setTimeout(() => {
       quote.mutate(
         { jobId: job.id, data: { type, startSec: range[0], endSec: range[1], box, instruction: instruction || "x x x", dialogueText: type === "dialogue" ? dialogueText || "xx" : null } },
-        { onSuccess: (result) => setCredits(result.credits), onError: () => setCredits(null) },
+        {
+          onSuccess: (result) => {
+            setCredits(result.credits);
+            setFreeSeconds((result.freeCredits ?? 0) > 0 ? result.freeSeconds ?? 0 : 0);
+          },
+          onError: () => {
+            setCredits(null);
+            setFreeSeconds(0);
+          },
+        },
       );
     }, 400);
     return () => clearTimeout(timer);
@@ -563,7 +573,13 @@ export function SmartEditDialog({
             {error && <p className="text-sm text-destructive" role="alert" data-testid="error-smart-edit">{error}</p>}
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground" data-testid="smart-edit-credits">
-                {credits === null ? "" : `≈ ${credits.toLocaleString("en-IN", { maximumFractionDigits: 1 })} credits`}
+                {credits === null
+                  ? ""
+                  : freeSeconds > 0 && credits === 0
+                    ? `Free — first ${freeSeconds}s of this video's first edit are on us`
+                    : freeSeconds > 0
+                      ? `First ${freeSeconds}s free · you pay ≈ ${credits.toLocaleString("en-IN", { maximumFractionDigits: 1 })} credits`
+                      : `≈ ${credits.toLocaleString("en-IN", { maximumFractionDigits: 1 })} credits`}
               </span>
               <Button type="button" disabled={!ready} onClick={() => submit()} data-testid="button-smart-edit-generate">
                 {create.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Cutting…</> : "Generate edit"}

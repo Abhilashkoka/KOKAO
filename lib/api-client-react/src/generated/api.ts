@@ -249,6 +249,9 @@ import type {
   GetRevenueAnalyticsParams,
   GetStudioLipSyncAnalyticsParams,
   GetVideoPublishCapabilities200,
+  GoodwillAvailability,
+  GoodwillReport,
+  GoodwillSettings,
   GoogleAdCustomerChoice,
   GoogleAdsAppCredentialInput,
   GoogleAdsAppCredentialStatus,
@@ -22865,6 +22868,83 @@ export const useGenerateVideoCoverCandidates = <TError = ErrorType<ErrorEnvelope
       return useMutation(getGenerateVideoCoverCandidatesMutationOptions(options));
     }
 
+export const getGetVideoJobGoodwillUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/goodwill`
+}
+
+/**
+ * @summary What is still free on this video (storyboard image redos, Smart Edit seconds)
+ */
+export const getVideoJobGoodwill = async (jobId: number, options?: RequestInit): Promise<GoodwillAvailability> => {
+
+  return customFetch<GoodwillAvailability>(getGetVideoJobGoodwillUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVideoJobGoodwillQueryKey = (jobId: number,) => {
+    return [
+    `/api/ai/video-jobs/${jobId}/goodwill`
+    ] as const;
+    }
+
+
+export const getGetVideoJobGoodwillQueryOptions = <TData = Awaited<ReturnType<typeof getVideoJobGoodwill>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobGoodwill>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVideoJobGoodwillQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVideoJobGoodwill>>> = ({ signal }) => getVideoJobGoodwill(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVideoJobGoodwill>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVideoJobGoodwillQueryResult = NonNullable<Awaited<ReturnType<typeof getVideoJobGoodwill>>>
+export type GetVideoJobGoodwillQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary What is still free on this video (storyboard image redos, Smart Edit seconds)
+ */
+
+export function useGetVideoJobGoodwill<TData = Awaited<ReturnType<typeof getVideoJobGoodwill>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobGoodwill>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVideoJobGoodwillQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getGetSmartEditUrl = (jobId: number,) => {
 
 
@@ -37084,6 +37164,230 @@ export const useAdminUpdateCreditRates = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getAdminUpdateCreditRatesMutationOptions(options));
     }
+
+export const getAdminGetGoodwillSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/goodwill-settings`
+}
+
+/**
+ * @summary Free-fix (goodwill) settings (superadmin only)
+ */
+export const adminGetGoodwillSettings = async ( options?: RequestInit): Promise<GoodwillSettings> => {
+
+  return customFetch<GoodwillSettings>(getAdminGetGoodwillSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetGoodwillSettingsQueryKey = () => {
+    return [
+    `/api/admin/goodwill-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetGoodwillSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetGoodwillSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetGoodwillSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetGoodwillSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetGoodwillSettings>>> = ({ signal }) => adminGetGoodwillSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetGoodwillSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetGoodwillSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetGoodwillSettings>>>
+export type AdminGetGoodwillSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Free-fix (goodwill) settings (superadmin only)
+ */
+
+export function useAdminGetGoodwillSettings<TData = Awaited<ReturnType<typeof adminGetGoodwillSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetGoodwillSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetGoodwillSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateGoodwillSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/goodwill-settings`
+}
+
+/**
+ * @summary Change the free-fix (goodwill) settings (superadmin only)
+ */
+export const adminUpdateGoodwillSettings = async (goodwillSettings: GoodwillSettings, options?: RequestInit): Promise<GoodwillSettings> => {
+
+  return customFetch<GoodwillSettings>(getAdminUpdateGoodwillSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(goodwillSettings)
+  }
+);}
+
+
+
+
+export const getAdminUpdateGoodwillSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGoodwillSettings>>, TError,{data: BodyType<GoodwillSettings>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGoodwillSettings>>, TError,{data: BodyType<GoodwillSettings>}, TContext> => {
+
+const mutationKey = ['adminUpdateGoodwillSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateGoodwillSettings>>, {data: BodyType<GoodwillSettings>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateGoodwillSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateGoodwillSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateGoodwillSettings>>>
+    export type AdminUpdateGoodwillSettingsMutationBody = BodyType<GoodwillSettings>
+    export type AdminUpdateGoodwillSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Change the free-fix (goodwill) settings (superadmin only)
+ */
+export const useAdminUpdateGoodwillSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateGoodwillSettings>>, TError,{data: BodyType<GoodwillSettings>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateGoodwillSettings>>,
+        TError,
+        {data: BodyType<GoodwillSettings>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateGoodwillSettingsMutationOptions(options));
+    }
+
+export const getAdminGetGoodwillReportUrl = () => {
+
+
+
+
+  return `/api/admin/goodwill-report`
+}
+
+/**
+ * @summary What free fixes cost today and this month (superadmin only)
+ */
+export const adminGetGoodwillReport = async ( options?: RequestInit): Promise<GoodwillReport> => {
+
+  return customFetch<GoodwillReport>(getAdminGetGoodwillReportUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetGoodwillReportQueryKey = () => {
+    return [
+    `/api/admin/goodwill-report`
+    ] as const;
+    }
+
+
+export const getAdminGetGoodwillReportQueryOptions = <TData = Awaited<ReturnType<typeof adminGetGoodwillReport>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetGoodwillReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetGoodwillReportQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetGoodwillReport>>> = ({ signal }) => adminGetGoodwillReport({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetGoodwillReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetGoodwillReportQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetGoodwillReport>>>
+export type AdminGetGoodwillReportQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary What free fixes cost today and this month (superadmin only)
+ */
+
+export function useAdminGetGoodwillReport<TData = Awaited<ReturnType<typeof adminGetGoodwillReport>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetGoodwillReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetGoodwillReportQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getAdminGetCreditSpendGuardUrl = () => {
 

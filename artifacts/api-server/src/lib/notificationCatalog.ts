@@ -151,6 +151,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "goodwill_budget_alarm",
+    label: "Free-fix spending alarm (platform admins)",
+    description:
+      "Free fixes KOKAO paid for today crossed the daily goodwill alarm set in Admin → AI. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "textgen_failover",
     label: "AI text provider failover (platform admins)",
     description:

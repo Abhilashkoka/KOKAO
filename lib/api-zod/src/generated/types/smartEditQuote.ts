@@ -8,6 +8,12 @@
 import type { SmartEditQuoteLinesItem } from './smartEditQuoteLinesItem';
 
 export interface SmartEditQuote {
+  /** What the user will pay, after any free seconds. */
   credits: number;
+  /** The whole edit before goodwill. */
+  fullCredits?: number;
+  /** Credits KOKAO pays for (first free seconds of the video's first picture edit). */
+  freeCredits?: number;
+  freeSeconds?: number;
   lines: SmartEditQuoteLinesItem[];
 }

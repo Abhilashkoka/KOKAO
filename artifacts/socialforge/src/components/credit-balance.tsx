@@ -137,6 +137,8 @@ function creditHistoryLabel(kind: string): string {
       return "Granted by admin";
     case "refund":
       return "Refunded";
+    case "goodwill":
+      return "Free fix (on us)";
     case "expire":
       return "Expired";
     case "spend":

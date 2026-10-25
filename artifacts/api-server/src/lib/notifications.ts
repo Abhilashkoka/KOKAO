@@ -2416,6 +2416,57 @@ export async function notifySweepFailRatio(
   return failedDeliveries;
 }
 
+export const GOODWILL_BUDGET_ALARM = "goodwill_budget_alarm";
+
+/**
+ * Tell platform admins that today's free fixes crossed the daily goodwill
+ * alarm. Fired at most once per UTC day by lib/goodwill.ts; best-effort.
+ */
+export async function notifyGoodwillAlarm(
+  totalCredits: number,
+  thresholdCredits: number,
+): Promise<void> {
+  const candidates = await db
+    .select({
+      id: tenantsTable.id,
+      clerkUserId: tenantsTable.clerkUserId,
+      email: tenantsTable.email,
+      isSuperadmin: tenantsTable.isSuperadmin,
+    })
+    .from(tenantsTable)
+    .where(or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)));
+  const recipients = candidates.filter((t) => t.isSuperadmin || isSuperadminEmail(t.email));
+  const title = "Free-fix spending is high today";
+  const message =
+    `KOKAO has given ${Math.round(totalCredits).toLocaleString("en-IN")} credits of free fixes today, ` +
+    `above the daily alarm of ${thresholdCredits.toLocaleString("en-IN")}. ` +
+    "Review Admin → AI → Goodwill: lower the free allowances or the monthly budget, or switch goodwill off.";
+  for (const recipient of recipients) {
+    try {
+      const effective = await getEffectiveSetting(recipient.id, GOODWILL_BUDGET_ALARM);
+      if (!effective.enabled) continue;
+      await db.insert(notificationsTable).values({
+        tenantId: recipient.id,
+        type: GOODWILL_BUDGET_ALARM,
+        platform: null,
+        title,
+        message,
+        linkUrl: "/admin",
+        inApp: effective.inApp,
+      });
+      await sendTenantPush(recipient.id, GOODWILL_BUDGET_ALARM, { title, message, linkUrl: "/admin" });
+      if (effective.email) {
+        const email = await fetchVerifiedEmail(recipient.clerkUserId);
+        if (email) {
+          await sendEmail({ to: email, subject: title, text: message, html: `<p>${escapeHtml(message)}</p>` });
+        }
+      }
+    } catch (err) {
+      logger.error({ err, recipientTenantId: recipient.id }, "Failed to send goodwill alarm");
+    }
+  }
+}
+
 export const TEXTGEN_FAILOVER = "textgen_failover";
 export const VIDEOGEN_FAILOVER = "videogen_failover";
 

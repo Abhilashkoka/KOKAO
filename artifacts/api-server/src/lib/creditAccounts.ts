@@ -49,7 +49,9 @@ export type GrantKind =
   | "grant_promo"
   | "grant_admin"
   | "purchase"
-  | "migrate";
+  | "migrate"
+  /** A free fix KOKAO pays for (see lib/goodwill.ts). Expiring bucket. */
+  | "goodwill";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -221,6 +223,9 @@ export interface GrantCreditsInput {
    */
   idempotencyKey?: string | null;
   note?: string | null;
+  /** What the grant was for, when it belongs to one job (goodwill fixes). */
+  refKind?: string | null;
+  refId?: string | null;
 }
 
 /**
@@ -289,6 +294,8 @@ export async function grantCredits(
       purchasedDeltaMilli: after.purchasedMilli - before.purchasedMilli,
       grantedDeltaMilli: after.grantedMilli - before.grantedMilli,
       balanceAfterMilli: after.purchasedMilli + after.grantedMilli,
+      refKind: input.refKind ?? null,
+      refId: input.refId ?? null,
       idempotencyKey: input.idempotencyKey ?? null,
       note: input.note ?? null,
     });

@@ -38687,6 +38687,22 @@ export const GenerateVideoCoverCandidatesResponse = zod.object({
 
 
 /**
+ * @summary What is still free on this video (storyboard image redos, Smart Edit seconds)
+ */
+export const GetVideoJobGoodwillParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetVideoJobGoodwillResponse = zod.object({
+  "active": zod.boolean().describe('False when goodwill is off or the workspace is not paying in credits.'),
+  "imageRedosLeft": zod.number(),
+  "smartEditFreeSeconds": zod.number(),
+  "smartEditFreeAvailable": zod.boolean(),
+  "monthlyBudgetLeft": zod.number()
+})
+
+
+/**
  * @summary Smart Edit state of a finished video (versions and edit attempts)
  */
 export const GetSmartEditParams = zod.object({
@@ -38797,7 +38813,10 @@ export const QuoteSmartEditBody = zod.object({
 })
 
 export const QuoteSmartEditResponse = zod.object({
-  "credits": zod.number(),
+  "credits": zod.number().describe('What the user will pay, after any free seconds.'),
+  "fullCredits": zod.number().optional().describe('The whole edit before goodwill.'),
+  "freeCredits": zod.number().optional().describe('Credits KOKAO pays for (first free seconds of the video\'s first picture edit).'),
+  "freeSeconds": zod.number().optional(),
   "lines": zod.array(zod.object({
   "rateKey": zod.string(),
   "quantity": zod.number(),
@@ -43838,6 +43857,89 @@ export const AdminUpdateCreditRatesResponse = zod.object({
   "notes": zod.string().nullish()
 }).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.')),
   "creditPricePaise": zod.number().min(1).max(adminUpdateCreditRatesResponseCreditPricePaiseMax).describe('Rupees per one credit, in paise. For example 4500 means ₹45 = 1 credit and ₹1 = 0.0222 credits. Used for legacy rupee-wallet migration only; purchased packs retain their explicit credits.')
+})
+
+
+/**
+ * @summary Free-fix (goodwill) settings (superadmin only)
+ */
+export const adminGetGoodwillSettingsResponseFreeImageRedosPerVideoMin = 0;
+export const adminGetGoodwillSettingsResponseFreeImageRedosPerVideoMax = 20;
+
+export const adminGetGoodwillSettingsResponseFreeSmartEditSecondsMin = 0;
+export const adminGetGoodwillSettingsResponseFreeSmartEditSecondsMax = 12;
+
+export const adminGetGoodwillSettingsResponseMonthlyBudgetCreditsMin = 0;
+
+export const adminGetGoodwillSettingsResponseDailyAlarmCreditsMin = 0;
+
+
+
+export const AdminGetGoodwillSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "freeImageRedosPerVideo": zod.number().min(adminGetGoodwillSettingsResponseFreeImageRedosPerVideoMin).max(adminGetGoodwillSettingsResponseFreeImageRedosPerVideoMax),
+  "freeSmartEditSeconds": zod.number().min(adminGetGoodwillSettingsResponseFreeSmartEditSecondsMin).max(adminGetGoodwillSettingsResponseFreeSmartEditSecondsMax),
+  "monthlyBudgetCredits": zod.number().min(adminGetGoodwillSettingsResponseMonthlyBudgetCreditsMin),
+  "dailyAlarmCredits": zod.number().min(adminGetGoodwillSettingsResponseDailyAlarmCreditsMin)
+})
+
+
+/**
+ * @summary Change the free-fix (goodwill) settings (superadmin only)
+ */
+export const adminUpdateGoodwillSettingsBodyFreeImageRedosPerVideoMin = 0;
+export const adminUpdateGoodwillSettingsBodyFreeImageRedosPerVideoMax = 20;
+
+export const adminUpdateGoodwillSettingsBodyFreeSmartEditSecondsMin = 0;
+export const adminUpdateGoodwillSettingsBodyFreeSmartEditSecondsMax = 12;
+
+export const adminUpdateGoodwillSettingsBodyMonthlyBudgetCreditsMin = 0;
+
+export const adminUpdateGoodwillSettingsBodyDailyAlarmCreditsMin = 0;
+
+
+
+export const AdminUpdateGoodwillSettingsBody = zod.object({
+  "enabled": zod.boolean(),
+  "freeImageRedosPerVideo": zod.number().min(adminUpdateGoodwillSettingsBodyFreeImageRedosPerVideoMin).max(adminUpdateGoodwillSettingsBodyFreeImageRedosPerVideoMax),
+  "freeSmartEditSeconds": zod.number().min(adminUpdateGoodwillSettingsBodyFreeSmartEditSecondsMin).max(adminUpdateGoodwillSettingsBodyFreeSmartEditSecondsMax),
+  "monthlyBudgetCredits": zod.number().min(adminUpdateGoodwillSettingsBodyMonthlyBudgetCreditsMin),
+  "dailyAlarmCredits": zod.number().min(adminUpdateGoodwillSettingsBodyDailyAlarmCreditsMin)
+})
+
+export const adminUpdateGoodwillSettingsResponseFreeImageRedosPerVideoMin = 0;
+export const adminUpdateGoodwillSettingsResponseFreeImageRedosPerVideoMax = 20;
+
+export const adminUpdateGoodwillSettingsResponseFreeSmartEditSecondsMin = 0;
+export const adminUpdateGoodwillSettingsResponseFreeSmartEditSecondsMax = 12;
+
+export const adminUpdateGoodwillSettingsResponseMonthlyBudgetCreditsMin = 0;
+
+export const adminUpdateGoodwillSettingsResponseDailyAlarmCreditsMin = 0;
+
+
+
+export const AdminUpdateGoodwillSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "freeImageRedosPerVideo": zod.number().min(adminUpdateGoodwillSettingsResponseFreeImageRedosPerVideoMin).max(adminUpdateGoodwillSettingsResponseFreeImageRedosPerVideoMax),
+  "freeSmartEditSeconds": zod.number().min(adminUpdateGoodwillSettingsResponseFreeSmartEditSecondsMin).max(adminUpdateGoodwillSettingsResponseFreeSmartEditSecondsMax),
+  "monthlyBudgetCredits": zod.number().min(adminUpdateGoodwillSettingsResponseMonthlyBudgetCreditsMin),
+  "dailyAlarmCredits": zod.number().min(adminUpdateGoodwillSettingsResponseDailyAlarmCreditsMin)
+})
+
+
+/**
+ * @summary What free fixes cost today and this month (superadmin only)
+ */
+export const AdminGetGoodwillReportResponse = zod.object({
+  "todayCredits": zod.number(),
+  "monthCredits": zod.number(),
+  "monthFixes": zod.number(),
+  "topWorkspaces": zod.array(zod.object({
+  "tenantId": zod.number(),
+  "credits": zod.number(),
+  "fixes": zod.number()
+}))
 })
 
 

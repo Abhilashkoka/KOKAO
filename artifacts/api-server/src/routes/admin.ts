@@ -239,6 +239,7 @@ import {
   AdminUpdateSignupCreditSettingsBody,
   AdminUpdateCreditRatesBody,
   AdminUpdateCreditSpendGuardBody,
+  AdminUpdateGoodwillSettingsBody,
   AdminGrantCreditAccountBody,
   AdminUpdateWalletSettingsBody,
   AdminUpdateTenantBillingModeBody,
@@ -338,6 +339,13 @@ import {
   CreditEnforcementLockedError,
   MILLI,
 } from "../lib/creditRates";
+import {
+  getGoodwillSettings,
+  setGoodwillSettings,
+  goodwillReport,
+  GoodwillSettingsError,
+  type GoodwillSettings,
+} from "../lib/goodwill";
 import {
   creditEnforcementLockReason,
   isCreditEnforcementAllowed,
@@ -5809,6 +5817,52 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
     }
   }
   res.json(after);
+});
+
+/** GET /admin/goodwill-settings — free-fix allowances, budget and alarm. */
+router.get("/admin/goodwill-settings", async (_req: Request, res: Response) => {
+  res.json(await getGoodwillSettings());
+});
+
+/** PUT /admin/goodwill-settings — change free-fix allowances (audited). */
+router.put("/admin/goodwill-settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateGoodwillSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await getGoodwillSettings();
+  let after: GoodwillSettings;
+  try {
+    after = await setGoodwillSettings(parsed.data);
+  } catch (error) {
+    if (error instanceof GoodwillSettingsError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    try {
+      await recordAdminAction({
+        action: "goodwill_settings_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: JSON.stringify(before),
+        newValue: JSON.stringify(after),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write goodwill audit log");
+    }
+  }
+  res.json(after);
+});
+
+/** GET /admin/goodwill-report — free-fix cost today and this month. */
+router.get("/admin/goodwill-report", async (_req: Request, res: Response) => {
+  res.json(await goodwillReport());
 });
 
 /**

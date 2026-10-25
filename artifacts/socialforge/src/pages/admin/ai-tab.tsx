@@ -1,3 +1,4 @@
+import { GoodwillCard } from "./goodwill-card";
 import { SpendGuardCard } from "./spend-guard-card";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch } from "wouter";
@@ -5696,6 +5697,7 @@ export function AiTab() {
       {flags.wallet && <WalletCard />}
       <CreditRatesCard />
       <SpendGuardCard />
+      <GoodwillCard />
       <CreditMeterReportCard />
       <CreditMigrationCard />
       {flags.aiCostTracking && (
