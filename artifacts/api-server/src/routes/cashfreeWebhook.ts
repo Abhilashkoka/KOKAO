@@ -12,6 +12,7 @@ import {
   getCashfreeOrder,
   getCashfreeSubscription,
   isCashfreeEntitledStatus,
+  cashfreePaidPeriodEnd,
   rupeesToPaise,
 } from "../lib/cashfree";
 import { grantCredits } from "../lib/credits";
@@ -216,9 +217,7 @@ async function handleSubscriptionEvent(
   // Re-fetch the canonical subscription rather than trusting the payload.
   const live = await getCashfreeSubscription(subscriptionId);
   const status = live.subscription_status;
-  const periodEnd = live.current_cycle?.cycle_end_time
-    ? new Date(live.current_cycle.cycle_end_time)
-    : sub.currentPeriodEnd;
+  const periodEnd = cashfreePaidPeriodEnd(live) ?? sub.currentPeriodEnd;
 
   await db
     .update(subscriptionsTable)
@@ -250,14 +249,17 @@ async function handleSubscriptionEvent(
     // verify route exactly, so at most one invoice per cycle regardless of
     // which path lands first. Covers renewals the browser never sees.
     const plan = await getPlan(sub.planId);
-    const pricePaise = plan?.priceInr ?? 0;
+    // Price and label follow the subscription's own cycle (mirrors the
+    // browser verify route), so yearly buyers are invoiced the yearly price.
+    const pricePaise =
+      (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0;
     if (plan && pricePaise > 0) {
       await recordInvoice({
         tenantId: sub.tenantId,
         kind: "plan",
         refId: `${subscriptionId}:${periodEnd?.toISOString() ?? "activation"}`,
         gateway: "cashfree",
-        description: `${plan.name} plan — monthly subscription`,
+        description: `${plan.name} plan — ${sub.billingCycle} subscription`,
         baseAmountPaise: pricePaise,
         totalPaise: pricePaise,
       });

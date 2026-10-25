@@ -260,6 +260,16 @@ describe("Cashfree subscription", () => {
     expect(start.status).toBe(200);
     expect(start.body.gateway).toBe("cashfree");
     expect(start.body.cashfreeSubscriptionId).toBe("kokao_sub_1");
+    // Billing anchors to the purchase date: cycle 1 charged now as the
+    // authorisation amount, first recurring debit one month later.
+    const subArgs = createSubMock.mock.calls[0][0];
+    expect(subArgs.firstCyclePaise).toBe(49900);
+    const firstCharge = new Date(subArgs.firstChargeTime);
+    const expected = new Date();
+    expected.setUTCMonth(expected.getUTCMonth() + 1);
+    expect(Math.abs(firstCharge.getTime() - expected.getTime())).toBeLessThan(
+      4 * 24 * 60 * 60 * 1000,
+    );
     // The mint was persisted onto the plan row.
     const planRow = (
       await db.select().from(planSettingsTable).where(eq(planSettingsTable.id, PLAN_ID)).limit(1)
