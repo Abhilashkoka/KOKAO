@@ -38687,6 +38687,78 @@ export const GenerateVideoCoverCandidatesResponse = zod.object({
 
 
 /**
+ * @summary AI Error Guarantee — can this video be claimed, and its claim
+ */
+export const GetVideoJobErrorClaimParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetVideoJobErrorClaimResponse = zod.object({
+  "eligible": zod.boolean(),
+  "reason": zod.string().nullable(),
+  "windowDays": zod.number(),
+  "claim": zod.union([zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "versionId": zod.string(),
+  "category": zod.enum(['product_changed', 'script_missed', 'wrong_person', 'garbled_text', 'other']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "videoDurationSec": zod.number(),
+  "note": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "autoApproved": zod.boolean(),
+  "suggestedCredits": zod.number(),
+  "creditsRefunded": zod.number(),
+  "decisionNote": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "decidedAt": zod.string().nullable()
+}),zod.null()])
+})
+
+
+/**
+ * @summary AI Error Guarantee — report that a finished video is wrong
+ */
+export const CreateAiErrorClaimParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const createAiErrorClaimBodyStartSecMin = 0;
+
+export const createAiErrorClaimBodyEndSecMin = 0;
+
+export const createAiErrorClaimBodyNoteMax = 500;
+
+
+
+export const CreateAiErrorClaimBody = zod.object({
+  "category": zod.enum(['product_changed', 'script_missed', 'wrong_person', 'garbled_text', 'other']),
+  "startSec": zod.number().min(createAiErrorClaimBodyStartSecMin),
+  "endSec": zod.number().min(createAiErrorClaimBodyEndSecMin),
+  "note": zod.string().max(createAiErrorClaimBodyNoteMax).optional()
+})
+
+export const CreateAiErrorClaimResponse = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "versionId": zod.string(),
+  "category": zod.enum(['product_changed', 'script_missed', 'wrong_person', 'garbled_text', 'other']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "videoDurationSec": zod.number(),
+  "note": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "autoApproved": zod.boolean(),
+  "suggestedCredits": zod.number(),
+  "creditsRefunded": zod.number(),
+  "decisionNote": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "decidedAt": zod.string().nullable()
+})
+
+
+/**
  * @summary What is still free on this video (storyboard image redos, Smart Edit seconds)
  */
 export const GetVideoJobGoodwillParams = zod.object({
@@ -43857,6 +43929,181 @@ export const AdminUpdateCreditRatesResponse = zod.object({
   "notes": zod.string().nullish()
 }).describe('One line of the credit rate card: how many credits a single unit of a billable action costs. The anchor is 1 credit = 1 second of standard-resolution video; every other rate is set relative to it.')),
   "creditPricePaise": zod.number().min(1).max(adminUpdateCreditRatesResponseCreditPricePaiseMax).describe('Rupees per one credit, in paise. For example 4500 means ₹45 = 1 credit and ₹1 = 0.0222 credits. Used for legacy rupee-wallet migration only; purchased packs retain their explicit credits.')
+})
+
+
+/**
+ * @summary AI Error Guarantee settings (superadmin only)
+ */
+export const adminGetAiErrorGuaranteeResponseClaimWindowDaysMax = 90;
+
+export const adminGetAiErrorGuaranteeResponseAutoApprovePerMonthMin = 0;
+export const adminGetAiErrorGuaranteeResponseAutoApprovePerMonthMax = 100;
+
+export const adminGetAiErrorGuaranteeResponseAutoApproveMaxPercentMin = 0;
+export const adminGetAiErrorGuaranteeResponseAutoApproveMaxPercentMax = 100;
+
+
+
+export const AdminGetAiErrorGuaranteeResponse = zod.object({
+  "enabled": zod.boolean(),
+  "claimWindowDays": zod.number().min(1).max(adminGetAiErrorGuaranteeResponseClaimWindowDaysMax),
+  "autoApprovePerMonth": zod.number().min(adminGetAiErrorGuaranteeResponseAutoApprovePerMonthMin).max(adminGetAiErrorGuaranteeResponseAutoApprovePerMonthMax),
+  "autoApproveMaxPercent": zod.number().min(adminGetAiErrorGuaranteeResponseAutoApproveMaxPercentMin).max(adminGetAiErrorGuaranteeResponseAutoApproveMaxPercentMax)
+})
+
+
+/**
+ * @summary Change AI Error Guarantee settings (superadmin only)
+ */
+export const adminUpdateAiErrorGuaranteeBodyClaimWindowDaysMax = 90;
+
+export const adminUpdateAiErrorGuaranteeBodyAutoApprovePerMonthMin = 0;
+export const adminUpdateAiErrorGuaranteeBodyAutoApprovePerMonthMax = 100;
+
+export const adminUpdateAiErrorGuaranteeBodyAutoApproveMaxPercentMin = 0;
+export const adminUpdateAiErrorGuaranteeBodyAutoApproveMaxPercentMax = 100;
+
+
+
+export const AdminUpdateAiErrorGuaranteeBody = zod.object({
+  "enabled": zod.boolean(),
+  "claimWindowDays": zod.number().min(1).max(adminUpdateAiErrorGuaranteeBodyClaimWindowDaysMax),
+  "autoApprovePerMonth": zod.number().min(adminUpdateAiErrorGuaranteeBodyAutoApprovePerMonthMin).max(adminUpdateAiErrorGuaranteeBodyAutoApprovePerMonthMax),
+  "autoApproveMaxPercent": zod.number().min(adminUpdateAiErrorGuaranteeBodyAutoApproveMaxPercentMin).max(adminUpdateAiErrorGuaranteeBodyAutoApproveMaxPercentMax)
+})
+
+export const adminUpdateAiErrorGuaranteeResponseClaimWindowDaysMax = 90;
+
+export const adminUpdateAiErrorGuaranteeResponseAutoApprovePerMonthMin = 0;
+export const adminUpdateAiErrorGuaranteeResponseAutoApprovePerMonthMax = 100;
+
+export const adminUpdateAiErrorGuaranteeResponseAutoApproveMaxPercentMin = 0;
+export const adminUpdateAiErrorGuaranteeResponseAutoApproveMaxPercentMax = 100;
+
+
+
+export const AdminUpdateAiErrorGuaranteeResponse = zod.object({
+  "enabled": zod.boolean(),
+  "claimWindowDays": zod.number().min(1).max(adminUpdateAiErrorGuaranteeResponseClaimWindowDaysMax),
+  "autoApprovePerMonth": zod.number().min(adminUpdateAiErrorGuaranteeResponseAutoApprovePerMonthMin).max(adminUpdateAiErrorGuaranteeResponseAutoApprovePerMonthMax),
+  "autoApproveMaxPercent": zod.number().min(adminUpdateAiErrorGuaranteeResponseAutoApproveMaxPercentMin).max(adminUpdateAiErrorGuaranteeResponseAutoApproveMaxPercentMax)
+})
+
+
+/**
+ * @summary AI error claims queue and this month's report (superadmin only)
+ */
+export const AdminListAiErrorClaimsQueryParams = zod.object({
+  "status": zod.enum(['pending', 'approved', 'rejected']).optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const AdminListAiErrorClaimsResponse = zod.object({
+  "claims": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "versionId": zod.string(),
+  "category": zod.enum(['product_changed', 'script_missed', 'wrong_person', 'garbled_text', 'other']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "videoDurationSec": zod.number(),
+  "note": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "autoApproved": zod.boolean(),
+  "suggestedCredits": zod.number(),
+  "creditsRefunded": zod.number(),
+  "decisionNote": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "decidedAt": zod.string().nullable()
+}).and(zod.object({
+  "tenantId": zod.number(),
+  "videoPath": zod.string().nullable(),
+  "prompt": zod.string().nullable()
+}))),
+  "report": zod.object({
+  "pending": zod.number(),
+  "monthClaims": zod.number(),
+  "monthRefundedCredits": zod.number(),
+  "byCategory": zod.array(zod.object({
+  "category": zod.string(),
+  "claims": zod.number()
+}))
+})
+})
+
+
+/**
+ * @summary Approve a claim and refund credits (superadmin only)
+ */
+export const AdminApproveAiErrorClaimParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminApproveAiErrorClaimBodyCreditsMin = 0;
+
+export const adminApproveAiErrorClaimBodyNoteMax = 500;
+
+
+
+export const AdminApproveAiErrorClaimBody = zod.object({
+  "credits": zod.number().min(adminApproveAiErrorClaimBodyCreditsMin).nullish(),
+  "note": zod.string().max(adminApproveAiErrorClaimBodyNoteMax).nullish()
+})
+
+export const AdminApproveAiErrorClaimResponse = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "versionId": zod.string(),
+  "category": zod.enum(['product_changed', 'script_missed', 'wrong_person', 'garbled_text', 'other']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "videoDurationSec": zod.number(),
+  "note": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "autoApproved": zod.boolean(),
+  "suggestedCredits": zod.number(),
+  "creditsRefunded": zod.number(),
+  "decisionNote": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "decidedAt": zod.string().nullable()
+})
+
+
+/**
+ * @summary Reject a claim with a reason shown to the user (superadmin only)
+ */
+export const AdminRejectAiErrorClaimParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminRejectAiErrorClaimBodyCreditsMin = 0;
+
+export const adminRejectAiErrorClaimBodyNoteMax = 500;
+
+
+
+export const AdminRejectAiErrorClaimBody = zod.object({
+  "credits": zod.number().min(adminRejectAiErrorClaimBodyCreditsMin).nullish(),
+  "note": zod.string().max(adminRejectAiErrorClaimBodyNoteMax).nullish()
+})
+
+export const AdminRejectAiErrorClaimResponse = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "versionId": zod.string(),
+  "category": zod.enum(['product_changed', 'script_missed', 'wrong_person', 'garbled_text', 'other']),
+  "startSec": zod.number(),
+  "endSec": zod.number(),
+  "videoDurationSec": zod.number(),
+  "note": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'rejected']),
+  "autoApproved": zod.boolean(),
+  "suggestedCredits": zod.number(),
+  "creditsRefunded": zod.number(),
+  "decisionNote": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "decidedAt": zod.string().nullable()
 })
 
 

@@ -29,6 +29,7 @@ import type {
   AdminAdjustTenantWallet200,
   AdminAdsSettings,
   AdminAdsSettingsInput,
+  AdminAiErrorClaimList,
   AdminAiFallbackReportView,
   AdminAuditLogPage,
   AdminCorrectPurchasedCredits200,
@@ -42,6 +43,7 @@ import type {
   AdminGetCreditMeterReportParams,
   AdminGrantCredits200,
   AdminIssueCreatorCode201,
+  AdminListAiErrorClaimsParams,
   AdminListAuditLogsParams,
   AdminListCreatorCommissions200,
   AdminListCreatorCommissionsParams,
@@ -87,6 +89,11 @@ import type {
   AiCostConfigView,
   AiCostDedupeResult,
   AiCostReportView,
+  AiErrorClaim,
+  AiErrorClaimDecision,
+  AiErrorClaimEligibility,
+  AiErrorClaimInput,
+  AiErrorGuaranteeSettings,
   AiModelChoicesView,
   AiModelPriceImportConfirmInput,
   AiModelPriceImportPreview,
@@ -22868,6 +22875,154 @@ export const useGenerateVideoCoverCandidates = <TError = ErrorType<ErrorEnvelope
       return useMutation(getGenerateVideoCoverCandidatesMutationOptions(options));
     }
 
+export const getGetVideoJobErrorClaimUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/error-claim`
+}
+
+/**
+ * @summary AI Error Guarantee — can this video be claimed, and its claim
+ */
+export const getVideoJobErrorClaim = async (jobId: number, options?: RequestInit): Promise<AiErrorClaimEligibility> => {
+
+  return customFetch<AiErrorClaimEligibility>(getGetVideoJobErrorClaimUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVideoJobErrorClaimQueryKey = (jobId: number,) => {
+    return [
+    `/api/ai/video-jobs/${jobId}/error-claim`
+    ] as const;
+    }
+
+
+export const getGetVideoJobErrorClaimQueryOptions = <TData = Awaited<ReturnType<typeof getVideoJobErrorClaim>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobErrorClaim>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVideoJobErrorClaimQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVideoJobErrorClaim>>> = ({ signal }) => getVideoJobErrorClaim(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVideoJobErrorClaim>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVideoJobErrorClaimQueryResult = NonNullable<Awaited<ReturnType<typeof getVideoJobErrorClaim>>>
+export type GetVideoJobErrorClaimQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary AI Error Guarantee — can this video be claimed, and its claim
+ */
+
+export function useGetVideoJobErrorClaim<TData = Awaited<ReturnType<typeof getVideoJobErrorClaim>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoJobErrorClaim>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVideoJobErrorClaimQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAiErrorClaimUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/error-claims`
+}
+
+/**
+ * @summary AI Error Guarantee — report that a finished video is wrong
+ */
+export const createAiErrorClaim = async (jobId: number,
+    aiErrorClaimInput: AiErrorClaimInput, options?: RequestInit): Promise<AiErrorClaim> => {
+
+  return customFetch<AiErrorClaim>(getCreateAiErrorClaimUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiErrorClaimInput)
+  }
+);}
+
+
+
+
+export const getCreateAiErrorClaimMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiErrorClaim>>, TError,{jobId: number;data: BodyType<AiErrorClaimInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAiErrorClaim>>, TError,{jobId: number;data: BodyType<AiErrorClaimInput>}, TContext> => {
+
+const mutationKey = ['createAiErrorClaim'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAiErrorClaim>>, {jobId: number;data: BodyType<AiErrorClaimInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  createAiErrorClaim(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAiErrorClaimMutationResult = NonNullable<Awaited<ReturnType<typeof createAiErrorClaim>>>
+    export type CreateAiErrorClaimMutationBody = BodyType<AiErrorClaimInput>
+    export type CreateAiErrorClaimMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary AI Error Guarantee — report that a finished video is wrong
+ */
+export const useCreateAiErrorClaim = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiErrorClaim>>, TError,{jobId: number;data: BodyType<AiErrorClaimInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAiErrorClaim>>,
+        TError,
+        {jobId: number;data: BodyType<AiErrorClaimInput>},
+        TContext
+      > => {
+      return useMutation(getCreateAiErrorClaimMutationOptions(options));
+    }
+
 export const getGetVideoJobGoodwillUrl = (jobId: number,) => {
 
 
@@ -37163,6 +37318,379 @@ export const useAdminUpdateCreditRates = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpdateCreditRatesMutationOptions(options));
+    }
+
+export const getAdminGetAiErrorGuaranteeUrl = () => {
+
+
+
+
+  return `/api/admin/ai-error-guarantee`
+}
+
+/**
+ * @summary AI Error Guarantee settings (superadmin only)
+ */
+export const adminGetAiErrorGuarantee = async ( options?: RequestInit): Promise<AiErrorGuaranteeSettings> => {
+
+  return customFetch<AiErrorGuaranteeSettings>(getAdminGetAiErrorGuaranteeUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAiErrorGuaranteeQueryKey = () => {
+    return [
+    `/api/admin/ai-error-guarantee`
+    ] as const;
+    }
+
+
+export const getAdminGetAiErrorGuaranteeQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAiErrorGuarantee>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiErrorGuarantee>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAiErrorGuaranteeQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAiErrorGuarantee>>> = ({ signal }) => adminGetAiErrorGuarantee({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAiErrorGuarantee>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAiErrorGuaranteeQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAiErrorGuarantee>>>
+export type AdminGetAiErrorGuaranteeQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary AI Error Guarantee settings (superadmin only)
+ */
+
+export function useAdminGetAiErrorGuarantee<TData = Awaited<ReturnType<typeof adminGetAiErrorGuarantee>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiErrorGuarantee>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAiErrorGuaranteeQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateAiErrorGuaranteeUrl = () => {
+
+
+
+
+  return `/api/admin/ai-error-guarantee`
+}
+
+/**
+ * @summary Change AI Error Guarantee settings (superadmin only)
+ */
+export const adminUpdateAiErrorGuarantee = async (aiErrorGuaranteeSettings: AiErrorGuaranteeSettings, options?: RequestInit): Promise<AiErrorGuaranteeSettings> => {
+
+  return customFetch<AiErrorGuaranteeSettings>(getAdminUpdateAiErrorGuaranteeUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiErrorGuaranteeSettings)
+  }
+);}
+
+
+
+
+export const getAdminUpdateAiErrorGuaranteeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiErrorGuarantee>>, TError,{data: BodyType<AiErrorGuaranteeSettings>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiErrorGuarantee>>, TError,{data: BodyType<AiErrorGuaranteeSettings>}, TContext> => {
+
+const mutationKey = ['adminUpdateAiErrorGuarantee'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateAiErrorGuarantee>>, {data: BodyType<AiErrorGuaranteeSettings>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateAiErrorGuarantee(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateAiErrorGuaranteeMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateAiErrorGuarantee>>>
+    export type AdminUpdateAiErrorGuaranteeMutationBody = BodyType<AiErrorGuaranteeSettings>
+    export type AdminUpdateAiErrorGuaranteeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Change AI Error Guarantee settings (superadmin only)
+ */
+export const useAdminUpdateAiErrorGuarantee = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateAiErrorGuarantee>>, TError,{data: BodyType<AiErrorGuaranteeSettings>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateAiErrorGuarantee>>,
+        TError,
+        {data: BodyType<AiErrorGuaranteeSettings>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateAiErrorGuaranteeMutationOptions(options));
+    }
+
+export const getAdminListAiErrorClaimsUrl = (params?: AdminListAiErrorClaimsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/ai-error-claims?${stringifiedParams}` : `/api/admin/ai-error-claims`
+}
+
+/**
+ * @summary AI error claims queue and this month's report (superadmin only)
+ */
+export const adminListAiErrorClaims = async (params?: AdminListAiErrorClaimsParams, options?: RequestInit): Promise<AdminAiErrorClaimList> => {
+
+  return customFetch<AdminAiErrorClaimList>(getAdminListAiErrorClaimsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListAiErrorClaimsQueryKey = (params?: AdminListAiErrorClaimsParams,) => {
+    return [
+    `/api/admin/ai-error-claims`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminListAiErrorClaimsQueryOptions = <TData = Awaited<ReturnType<typeof adminListAiErrorClaims>>, TError = ErrorType<unknown>>(params?: AdminListAiErrorClaimsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListAiErrorClaims>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListAiErrorClaimsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListAiErrorClaims>>> = ({ signal }) => adminListAiErrorClaims(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListAiErrorClaims>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListAiErrorClaimsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListAiErrorClaims>>>
+export type AdminListAiErrorClaimsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary AI error claims queue and this month's report (superadmin only)
+ */
+
+export function useAdminListAiErrorClaims<TData = Awaited<ReturnType<typeof adminListAiErrorClaims>>, TError = ErrorType<unknown>>(
+ params?: AdminListAiErrorClaimsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListAiErrorClaims>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListAiErrorClaimsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminApproveAiErrorClaimUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/ai-error-claims/${id}/approve`
+}
+
+/**
+ * @summary Approve a claim and refund credits (superadmin only)
+ */
+export const adminApproveAiErrorClaim = async (id: number,
+    aiErrorClaimDecision?: AiErrorClaimDecision, options?: RequestInit): Promise<AiErrorClaim> => {
+
+  return customFetch<AiErrorClaim>(getAdminApproveAiErrorClaimUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiErrorClaimDecision)
+  }
+);}
+
+
+
+
+export const getAdminApproveAiErrorClaimMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminApproveAiErrorClaim>>, TError,{id: number;data?: BodyType<AiErrorClaimDecision>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminApproveAiErrorClaim>>, TError,{id: number;data?: BodyType<AiErrorClaimDecision>}, TContext> => {
+
+const mutationKey = ['adminApproveAiErrorClaim'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminApproveAiErrorClaim>>, {id: number;data?: BodyType<AiErrorClaimDecision>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminApproveAiErrorClaim(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminApproveAiErrorClaimMutationResult = NonNullable<Awaited<ReturnType<typeof adminApproveAiErrorClaim>>>
+    export type AdminApproveAiErrorClaimMutationBody = BodyType<AiErrorClaimDecision> | undefined
+    export type AdminApproveAiErrorClaimMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Approve a claim and refund credits (superadmin only)
+ */
+export const useAdminApproveAiErrorClaim = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminApproveAiErrorClaim>>, TError,{id: number;data?: BodyType<AiErrorClaimDecision>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminApproveAiErrorClaim>>,
+        TError,
+        {id: number;data?: BodyType<AiErrorClaimDecision>},
+        TContext
+      > => {
+      return useMutation(getAdminApproveAiErrorClaimMutationOptions(options));
+    }
+
+export const getAdminRejectAiErrorClaimUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/ai-error-claims/${id}/reject`
+}
+
+/**
+ * @summary Reject a claim with a reason shown to the user (superadmin only)
+ */
+export const adminRejectAiErrorClaim = async (id: number,
+    aiErrorClaimDecision?: AiErrorClaimDecision, options?: RequestInit): Promise<AiErrorClaim> => {
+
+  return customFetch<AiErrorClaim>(getAdminRejectAiErrorClaimUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiErrorClaimDecision)
+  }
+);}
+
+
+
+
+export const getAdminRejectAiErrorClaimMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRejectAiErrorClaim>>, TError,{id: number;data?: BodyType<AiErrorClaimDecision>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminRejectAiErrorClaim>>, TError,{id: number;data?: BodyType<AiErrorClaimDecision>}, TContext> => {
+
+const mutationKey = ['adminRejectAiErrorClaim'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminRejectAiErrorClaim>>, {id: number;data?: BodyType<AiErrorClaimDecision>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminRejectAiErrorClaim(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminRejectAiErrorClaimMutationResult = NonNullable<Awaited<ReturnType<typeof adminRejectAiErrorClaim>>>
+    export type AdminRejectAiErrorClaimMutationBody = BodyType<AiErrorClaimDecision> | undefined
+    export type AdminRejectAiErrorClaimMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Reject a claim with a reason shown to the user (superadmin only)
+ */
+export const useAdminRejectAiErrorClaim = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminRejectAiErrorClaim>>, TError,{id: number;data?: BodyType<AiErrorClaimDecision>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminRejectAiErrorClaim>>,
+        TError,
+        {id: number;data?: BodyType<AiErrorClaimDecision>},
+        TContext
+      > => {
+      return useMutation(getAdminRejectAiErrorClaimMutationOptions(options));
     }
 
 export const getAdminGetGoodwillSettingsUrl = () => {

@@ -131,6 +131,7 @@ import {
 } from "@/components/credit-balance";
 import { useSpendConfirmation } from "@/components/spend-guard";
 import { VideoCreditReceipt } from "@/components/video-credit-receipt";
+import { ReportAiError } from "@/components/report-ai-error";
 import {
   trackProjectEvent,
   trackPresetCastEvent,
@@ -7651,6 +7652,13 @@ export function VideoStudioPage() {
                     >
                       <Scissors className="h-4 w-4 mr-2" /> Edit
                     </Button>
+                  )}
+                  {(activeJob.currentVideoPath ?? activeJob.videoPath) && (
+                    <ReportAiError
+                      jobId={activeJob.id}
+                      videoPath={(activeJob.currentVideoPath ?? activeJob.videoPath)!}
+                      onOpenSmartEdit={() => setSmartEditOpen(true)}
+                    />
                   )}
                   {smartEditOpen && (
                     <SmartEditDialog

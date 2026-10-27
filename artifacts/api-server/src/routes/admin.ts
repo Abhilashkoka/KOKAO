@@ -240,6 +240,9 @@ import {
   AdminUpdateCreditRatesBody,
   AdminUpdateCreditSpendGuardBody,
   AdminUpdateGoodwillSettingsBody,
+  AdminUpdateAiErrorGuaranteeBody,
+  AdminApproveAiErrorClaimBody,
+  AdminRejectAiErrorClaimBody,
   AdminGrantCreditAccountBody,
   AdminUpdateWalletSettingsBody,
   AdminUpdateTenantBillingModeBody,
@@ -339,6 +342,17 @@ import {
   CreditEnforcementLockedError,
   MILLI,
 } from "../lib/creditRates";
+import { notifyAiErrorClaimDecided } from "../lib/notifications";
+import {
+  claimsReport,
+  ClaimError,
+  decideClaim,
+  getGuaranteeSettings,
+  listClaims,
+  serializeClaim,
+  setGuaranteeSettings,
+  type GuaranteeSettings,
+} from "../lib/aiErrorClaims";
 import {
   getGoodwillSettings,
   setGoodwillSettings,
@@ -5817,6 +5831,141 @@ router.put("/admin/credit-rates", async (req: Request, res: Response) => {
     }
   }
   res.json(after);
+});
+
+/** GET /admin/ai-error-guarantee — guarantee settings. */
+router.get("/admin/ai-error-guarantee", async (_req: Request, res: Response) => {
+  res.json(await getGuaranteeSettings());
+});
+
+/** PUT /admin/ai-error-guarantee — switch on, window and auto limits (audited). */
+router.put("/admin/ai-error-guarantee", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateAiErrorGuaranteeBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const before = await getGuaranteeSettings();
+  let after: GuaranteeSettings;
+  try {
+    after = await setGuaranteeSettings(parsed.data);
+  } catch (error) {
+    if (error instanceof ClaimError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    try {
+      await recordAdminAction({
+        action: "ai_error_guarantee_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: JSON.stringify(before),
+        newValue: JSON.stringify(after),
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write guarantee audit log");
+    }
+  }
+  res.json(after);
+});
+
+/** GET /admin/ai-error-claims?status=pending — the claims queue, newest first. */
+router.get("/admin/ai-error-claims", async (req: Request, res: Response) => {
+  const status = typeof req.query.status === "string" && ["pending", "approved", "rejected"].includes(req.query.status)
+    ? req.query.status
+    : null;
+  const claims = await listClaims(status, Number(req.query.limit) || 50);
+  const jobIds = [...new Set(claims.map((c) => c.jobId))];
+  const jobs = jobIds.length
+    ? await db
+        .select({ id: videoGenerationsTable.id, videoPath: videoGenerationsTable.videoPath, prompt: videoGenerationsTable.prompt })
+        .from(videoGenerationsTable)
+        .where(inArray(videoGenerationsTable.id, jobIds))
+    : [];
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  res.json({
+    claims: claims.map((claim) => ({
+      ...serializeClaim(claim),
+      tenantId: claim.tenantId,
+      videoPath: byId.get(claim.jobId)?.videoPath ?? null,
+      prompt: byId.get(claim.jobId)?.prompt ?? null,
+    })),
+    report: await claimsReport(),
+  });
+});
+
+/** POST /admin/ai-error-claims/:id/approve — refund (default: the suggestion). */
+router.post("/admin/ai-error-claims/:id/approve", async (req: Request, res: Response) => {
+  const parsed = AdminApproveAiErrorClaimBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  try {
+    const claim = await decideClaim({
+      claimId: Number(req.params.id),
+      approve: true,
+      credits: parsed.data.credits ?? null,
+      note: parsed.data.note ?? null,
+      adminTenantId: req.tenantId,
+    });
+    await recordAdminAction({
+      action: "ai_error_claim_decision",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: claim.tenantId,
+      targetEmail: null,
+      oldValue: "pending",
+      newValue: JSON.stringify({ claimId: claim.id, status: claim.status, credits: claim.creditsRefunded }),
+    }).catch((error) => req.log.error({ err: error }, "Failed to audit claim decision"));
+    void notifyAiErrorClaimDecided(claim.tenantId, claim);
+    res.json(serializeClaim(claim));
+  } catch (error) {
+    if (error instanceof ClaimError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+});
+
+/** POST /admin/ai-error-claims/:id/reject — no refund; the reason is shown to the user. */
+router.post("/admin/ai-error-claims/:id/reject", async (req: Request, res: Response) => {
+  const parsed = AdminRejectAiErrorClaimBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  try {
+    const claim = await decideClaim({
+      claimId: Number(req.params.id),
+      approve: false,
+      note: parsed.data.note ?? null,
+      adminTenantId: req.tenantId,
+    });
+    await recordAdminAction({
+      action: "ai_error_claim_decision",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: claim.tenantId,
+      targetEmail: null,
+      oldValue: "pending",
+      newValue: JSON.stringify({ claimId: claim.id, status: claim.status }),
+    }).catch((error) => req.log.error({ err: error }, "Failed to audit claim decision"));
+    void notifyAiErrorClaimDecided(claim.tenantId, claim);
+    res.json(serializeClaim(claim));
+  } catch (error) {
+    if (error instanceof ClaimError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
 });
 
 /** GET /admin/goodwill-settings — free-fix allowances, budget and alarm. */

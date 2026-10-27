@@ -49,6 +49,7 @@ import {
   CreateGuidedStoryDraftBody,
   CreateSmartEditBody,
   QuoteSmartEditBody,
+  CreateAiErrorClaimBody,
   InspectGuidedStoryReferenceBody,
   TranscribeGuidedStoryReferenceBody,
   UpdateGuidedStoryDraftBody,
@@ -428,6 +429,12 @@ import {
   quoteVideoJobCredits,
   type VideoJobQuoteInput,
 } from "../lib/creditQuote";
+import {
+  claimEligibility,
+  ClaimError,
+  fileClaim,
+  serializeClaim,
+} from "../lib/aiErrorClaims";
 import {
   applySmartEditGoodwill,
   claimGoodwill,
@@ -14477,6 +14484,79 @@ async function updateSmartEditState(
     return saved!;
   });
 }
+
+/** Claim facts for one video row, as the guarantee rules need them. */
+function claimJob(job: VideoGeneration) {
+  return {
+    id: job.id,
+    status: job.status,
+    createdAt: job.createdAt,
+    isSmartEditChild: Boolean(job.options?.smartEditOf),
+  };
+}
+
+/** AI Error Guarantee: can this video be claimed, and its claim if any. */
+router.get("/ai/video-jobs/:jobId/error-claim", async (req: Request, res: Response) => {
+  const job = await loadJob(req);
+  if (!job) {
+    res.status(404).json({ error: "Video not found." });
+    return;
+  }
+  const result = await claimEligibility(req.tenantId, claimJob(job));
+  res.json({
+    eligible: result.eligible,
+    reason: result.reason,
+    windowDays: result.windowDays,
+    claim: result.claim ? serializeClaim(result.claim) : null,
+  });
+});
+
+/** AI Error Guarantee: report that the finished video is wrong. */
+router.post("/ai/video-jobs/:jobId/error-claims", async (req: Request, res: Response) => {
+  const parsed = CreateAiErrorClaimBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid claim." });
+    return;
+  }
+  const job = await loadJob(req);
+  if (!job) {
+    res.status(404).json({ error: "Video not found." });
+    return;
+  }
+  const current = smartEditCurrentVersion(job.options?.smartEdit);
+  let durationSec = current?.durationSec ?? null;
+  const videoPath = current?.path ?? job.videoPath;
+  if (!durationSec && videoPath) {
+    try {
+      durationSec = (await probeVideoBuffer(await loadSmartEditVideo(videoPath, req.tenantId))).durationSec;
+    } catch (error) {
+      req.log.warn({ err: error, jobId: job.id }, "Claim could not read the video length");
+    }
+  }
+  if (!durationSec) {
+    res.status(409).json({ error: "The video could not be read. Try again in a moment." });
+    return;
+  }
+  try {
+    const claim = await fileClaim({
+      tenantId: req.tenantId,
+      job: claimJob(job),
+      versionId: current?.id ?? "v0",
+      videoDurationSec: durationSec,
+      category: parsed.data.category,
+      startSec: parsed.data.startSec,
+      endSec: parsed.data.endSec,
+      note: parsed.data.note ?? "",
+    });
+    res.status(201).json(serializeClaim(claim));
+  } catch (error) {
+    if (error instanceof ClaimError) {
+      res.status(error.status).json({ error: error.message, code: error.code });
+      return;
+    }
+    throw error;
+  }
+});
 
 /** What is still free on this video: storyboard image redos and Smart Edit seconds. */
 router.get("/ai/video-jobs/:jobId/goodwill", async (req: Request, res: Response) => {

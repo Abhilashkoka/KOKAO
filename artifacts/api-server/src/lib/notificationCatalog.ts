@@ -34,6 +34,11 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     description: "Someone who used your invite code bought credits, and your share was added to your balance.",
   },
   {
+    type: "ai_error_claim_decided",
+    label: "AI error claim decisions",
+    description: "We reviewed your AI error claim on a video and refunded credits or explained why not.",
+  },
+  {
     type: "promoter_application_reviewed",
     label: "Promoter application decisions",
     description: "Your application to the promoter programme was approved or declined.",

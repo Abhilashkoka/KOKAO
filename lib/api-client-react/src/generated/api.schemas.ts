@@ -2077,6 +2077,132 @@ export interface CreditWallet {
   spendGuard?: CreditSpendGuard;
 }
 
+export type AiErrorClaimCategory = typeof AiErrorClaimCategory[keyof typeof AiErrorClaimCategory];
+
+
+export const AiErrorClaimCategory = {
+  product_changed: 'product_changed',
+  script_missed: 'script_missed',
+  wrong_person: 'wrong_person',
+  garbled_text: 'garbled_text',
+  other: 'other',
+} as const;
+
+export type AiErrorClaimStatus = typeof AiErrorClaimStatus[keyof typeof AiErrorClaimStatus];
+
+
+export const AiErrorClaimStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface AiErrorClaim {
+  id: number;
+  jobId: number;
+  versionId: string;
+  category: AiErrorClaimCategory;
+  startSec: number;
+  endSec: number;
+  videoDurationSec: number;
+  note: string;
+  status: AiErrorClaimStatus;
+  autoApproved: boolean;
+  suggestedCredits: number;
+  creditsRefunded: number;
+  /** @nullable */
+  decisionNote: string | null;
+  createdAt: string;
+  /** @nullable */
+  decidedAt: string | null;
+}
+
+export type AiErrorClaimInputCategory = typeof AiErrorClaimInputCategory[keyof typeof AiErrorClaimInputCategory];
+
+
+export const AiErrorClaimInputCategory = {
+  product_changed: 'product_changed',
+  script_missed: 'script_missed',
+  wrong_person: 'wrong_person',
+  garbled_text: 'garbled_text',
+  other: 'other',
+} as const;
+
+export interface AiErrorClaimInput {
+  category: AiErrorClaimInputCategory;
+  /** @minimum 0 */
+  startSec: number;
+  /** @minimum 0 */
+  endSec: number;
+  /** @maxLength 500 */
+  note?: string;
+}
+
+export interface AiErrorClaimEligibility {
+  eligible: boolean;
+  /** @nullable */
+  reason: string | null;
+  windowDays: number;
+  claim: AiErrorClaim | null;
+}
+
+export interface AiErrorGuaranteeSettings {
+  enabled: boolean;
+  /**
+     * @minimum 1
+     * @maximum 90
+     */
+  claimWindowDays: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  autoApprovePerMonth: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  autoApproveMaxPercent: number;
+}
+
+export interface AiErrorClaimDecision {
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  credits?: number | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  note?: string | null;
+}
+
+export type AdminAiErrorClaim = AiErrorClaim & ({
+  tenantId: number;
+  /** @nullable */
+  videoPath: string | null;
+  /** @nullable */
+  prompt: string | null;
+});
+
+export type AdminAiErrorClaimListReportByCategoryItem = {
+  category: string;
+  claims: number;
+};
+
+export type AdminAiErrorClaimListReport = {
+  pending: number;
+  monthClaims: number;
+  monthRefundedCredits: number;
+  byCategory: AdminAiErrorClaimListReportByCategoryItem[];
+};
+
+export interface AdminAiErrorClaimList {
+  claims: AdminAiErrorClaim[];
+  report: AdminAiErrorClaimListReport;
+}
+
 export interface GoodwillAvailability {
   /** False when goodwill is off or the workspace is not paying in credits. */
   active: boolean;
@@ -16252,6 +16378,20 @@ lipSync?: boolean;
  */
 draftId?: number;
 };
+
+export type AdminListAiErrorClaimsParams = {
+status?: AdminListAiErrorClaimsStatus;
+limit?: number;
+};
+
+export type AdminListAiErrorClaimsStatus = typeof AdminListAiErrorClaimsStatus[keyof typeof AdminListAiErrorClaimsStatus];
+
+
+export const AdminListAiErrorClaimsStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
 
 export type AdminGetCreditMeterReportParams = {
 /**

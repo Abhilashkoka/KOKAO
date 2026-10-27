@@ -51,6 +51,8 @@ export type AdminAuditAction =
   | "credit_rates_change"
   | "credit_spend_guard_change"
   | "goodwill_settings_change"
+  | "ai_error_guarantee_change"
+  | "ai_error_claim_decision"
   | "credit_account_grant"
   | "credit_account_correction"
   | "credit_grant"

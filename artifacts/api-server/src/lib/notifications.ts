@@ -2416,6 +2416,36 @@ export async function notifySweepFailRatio(
   return failedDeliveries;
 }
 
+export const AI_ERROR_CLAIM_DECIDED = "ai_error_claim_decided";
+
+/** Tell a workspace an admin decided its AI error claim. Best-effort. */
+export async function notifyAiErrorClaimDecided(
+  tenantId: number,
+  claim: { jobId: number; status: string; creditsRefunded: number; decisionNote: string | null },
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, AI_ERROR_CLAIM_DECIDED);
+    if (!effective.enabled) return;
+    const approved = claim.status === "approved";
+    const title = approved ? "AI error claim approved" : "AI error claim not approved";
+    const message = approved
+      ? `We refunded ${claim.creditsRefunded.toLocaleString("en-IN", { maximumFractionDigits: 1 })} credits for the AI error on video #${claim.jobId}.`
+      : `Your claim on video #${claim.jobId} was not approved${claim.decisionNote ? `: ${claim.decisionNote}` : "."}`;
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: AI_ERROR_CLAIM_DECIDED,
+      platform: null,
+      title,
+      message,
+      linkUrl: "/video-studio",
+      inApp: effective.inApp,
+    });
+    await sendTenantPush(tenantId, AI_ERROR_CLAIM_DECIDED, { title, message, linkUrl: "/video-studio" });
+  } catch (err) {
+    logger.error({ err, tenantId }, "Failed to notify AI error claim decision");
+  }
+}
+
 export const GOODWILL_BUDGET_ALARM = "goodwill_budget_alarm";
 
 /**

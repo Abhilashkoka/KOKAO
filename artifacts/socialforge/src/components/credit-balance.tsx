@@ -339,6 +339,8 @@ export function creditRateLabel(rateKey: string): string {
       return "Lip sync (per second)";
     case "transcription":
       return "Transcription";
+    case "ai_error":
+      return "AI error refund";
     default:
       return rateKey.replace(/_/g, " ");
   }

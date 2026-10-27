@@ -1,3 +1,4 @@
+import { AiErrorClaimsCard } from "./ai-error-claims-card";
 import { GoodwillCard } from "./goodwill-card";
 import { SpendGuardCard } from "./spend-guard-card";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -5698,6 +5699,7 @@ export function AiTab() {
       <CreditRatesCard />
       <SpendGuardCard />
       <GoodwillCard />
+      <AiErrorClaimsCard />
       <CreditMeterReportCard />
       <CreditMigrationCard />
       {flags.aiCostTracking && (

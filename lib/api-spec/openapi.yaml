@@ -8670,6 +8670,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/error-claim:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getVideoJobErrorClaim
+      tags: [ai]
+      summary: AI Error Guarantee — can this video be claimed, and its claim
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiErrorClaimEligibility"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/error-claims:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: createAiErrorClaim
+      tags: [ai]
+      summary: AI Error Guarantee — report that a finished video is wrong
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiErrorClaimInput"
+      responses:
+        "201":
+          description: Claim filed (approved straight away when the rules allow)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiErrorClaim"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Already claimed or video unreadable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/goodwill:
     parameters:
       - name: jobId
@@ -13718,6 +13778,125 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-error-guarantee:
+    get:
+      operationId: adminGetAiErrorGuarantee
+      tags: [admin]
+      summary: AI Error Guarantee settings (superadmin only)
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiErrorGuaranteeSettings"
+    put:
+      operationId: adminUpdateAiErrorGuarantee
+      tags: [admin]
+      summary: Change AI Error Guarantee settings (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiErrorGuaranteeSettings"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiErrorGuaranteeSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-error-claims:
+    get:
+      operationId: adminListAiErrorClaims
+      tags: [admin]
+      summary: AI error claims queue and this month's report (superadmin only)
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Claims
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAiErrorClaimList"
+  /admin/ai-error-claims/{id}/approve:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: adminApproveAiErrorClaim
+      tags: [admin]
+      summary: Approve a claim and refund credits (superadmin only)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiErrorClaimDecision"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiErrorClaim"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-error-claims/{id}/reject:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: adminRejectAiErrorClaim
+      tags: [admin]
+      summary: Reject a claim with a reason shown to the user (superadmin only)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiErrorClaimDecision"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiErrorClaim"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/goodwill-settings:
     get:
       operationId: adminGetGoodwillSettings
@@ -16884,6 +17063,95 @@ components:
           $ref: "#/components/schemas/LegacyConversionStatus"
         spendGuard:
           $ref: "#/components/schemas/CreditSpendGuard"
+    AiErrorClaim:
+      type: object
+      required: [id, jobId, versionId, category, startSec, endSec, videoDurationSec, note, status, autoApproved, suggestedCredits, creditsRefunded, decisionNote, createdAt, decidedAt]
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        versionId: { type: string }
+        category:
+          type: string
+          enum: [product_changed, script_missed, wrong_person, garbled_text, other]
+        startSec: { type: number }
+        endSec: { type: number }
+        videoDurationSec: { type: number }
+        note: { type: string }
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        autoApproved: { type: boolean }
+        suggestedCredits: { type: number }
+        creditsRefunded: { type: number }
+        decisionNote: { type: ["string", "null"] }
+        createdAt: { type: string }
+        decidedAt: { type: ["string", "null"] }
+    AiErrorClaimInput:
+      type: object
+      required: [category, startSec, endSec]
+      properties:
+        category:
+          type: string
+          enum: [product_changed, script_missed, wrong_person, garbled_text, other]
+        startSec: { type: number, minimum: 0 }
+        endSec: { type: number, minimum: 0 }
+        note: { type: string, maxLength: 500 }
+    AiErrorClaimEligibility:
+      type: object
+      required: [eligible, reason, windowDays, claim]
+      properties:
+        eligible: { type: boolean }
+        reason: { type: ["string", "null"] }
+        windowDays: { type: integer }
+        claim:
+          oneOf:
+            - $ref: "#/components/schemas/AiErrorClaim"
+            - type: "null"
+    AiErrorGuaranteeSettings:
+      type: object
+      required: [enabled, claimWindowDays, autoApprovePerMonth, autoApproveMaxPercent]
+      properties:
+        enabled: { type: boolean }
+        claimWindowDays: { type: integer, minimum: 1, maximum: 90 }
+        autoApprovePerMonth: { type: integer, minimum: 0, maximum: 100 }
+        autoApproveMaxPercent: { type: integer, minimum: 0, maximum: 100 }
+    AiErrorClaimDecision:
+      type: object
+      properties:
+        credits: { type: ["number", "null"], minimum: 0 }
+        note: { type: ["string", "null"], maxLength: 500 }
+    AdminAiErrorClaim:
+      allOf:
+        - $ref: "#/components/schemas/AiErrorClaim"
+        - type: object
+          required: [tenantId, videoPath, prompt]
+          properties:
+            tenantId: { type: integer }
+            videoPath: { type: ["string", "null"] }
+            prompt: { type: ["string", "null"] }
+    AdminAiErrorClaimList:
+      type: object
+      required: [claims, report]
+      properties:
+        claims:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAiErrorClaim"
+        report:
+          type: object
+          required: [pending, monthClaims, monthRefundedCredits, byCategory]
+          properties:
+            pending: { type: integer }
+            monthClaims: { type: integer }
+            monthRefundedCredits: { type: number }
+            byCategory:
+              type: array
+              items:
+                type: object
+                required: [category, claims]
+                properties:
+                  category: { type: string }
+                  claims: { type: integer }
     GoodwillAvailability:
       type: object
       required: [active, imageRedosLeft, smartEditFreeSeconds, smartEditFreeAvailable, monthlyBudgetLeft]
