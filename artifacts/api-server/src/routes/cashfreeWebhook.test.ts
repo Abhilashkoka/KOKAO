@@ -33,7 +33,11 @@ import {
   creditLedgerTable,
   creditBalancesTable,
   cashfreeEventsTable,
+  planSettingsTable,
+  invoicesTable,
+  tenantsTable,
 } from "@workspace/db";
+import { invalidatePlanCache } from "../lib/plans";
 import { eq, like } from "drizzle-orm";
 import cashfreeWebhookRouter from "./cashfreeWebhook";
 import type { AppCredential } from "@workspace/db";
@@ -250,5 +254,61 @@ describe("POST /billing/cashfree-webhook", () => {
     )[0];
     expect(row.status).toBe("active");
     await db.delete(subscriptionsTable).where(eq(subscriptionsTable.cashfreeSubscriptionId, subId));
+  });
+  it("invoices a yearly subscription at the yearly price", async () => {
+    const planId = `cf_yearly_${Date.now()}`;
+    await db.insert(planSettingsTable).values({
+      id: planId,
+      name: "CF Yearly",
+      priceLabel: "₹999/mo",
+      priceInr: 99900,
+      priceInrYearly: 999000,
+      captions: 1,
+      images: 1,
+      videos: 1,
+      brandKits: 1,
+      scheduledPosts: 1,
+      features: [],
+    });
+    invalidatePlanCache();
+    const subId = `cf_sub_yr_${Date.now()}`;
+    await db.insert(subscriptionsTable).values({
+      tenantId,
+      planId,
+      gateway: "cashfree",
+      cashfreeSubscriptionId: subId,
+      status: "created",
+      billingCycle: "yearly",
+    });
+    // Before the first recurring debit there is no current cycle: the paid
+    // period runs until the first charge date.
+    getSubMock.mockResolvedValue({
+      subscription_id: subId,
+      subscription_status: "ACTIVE",
+      current_cycle: null,
+      subscription_first_charge_time: "2031-03-01T00:00:00Z",
+    });
+    const res = await post(app, {
+      type: "SUBSCRIPTION_STATUS_WEBHOOK",
+      event_time: "2024-03-02T00:00:00Z",
+      data: { subscription_details: { subscription_id: subId } },
+    });
+    expect(res.status).toBe(200);
+    const row = (
+      await db.select().from(subscriptionsTable)
+        .where(eq(subscriptionsTable.cashfreeSubscriptionId, subId)).limit(1)
+    )[0];
+    expect(row.currentPeriodEnd?.toISOString()).toBe("2031-03-01T00:00:00.000Z");
+    const inv = (
+      await db.select().from(invoicesTable)
+        .where(eq(invoicesTable.refId, `${subId}:2031-03-01T00:00:00.000Z`)).limit(1)
+    )[0];
+    expect(inv.totalPaise).toBe(999000);
+    expect(inv.description).toContain("yearly");
+    await db.delete(invoicesTable).where(eq(invoicesTable.refId, inv.refId));
+    await db.delete(subscriptionsTable).where(eq(subscriptionsTable.cashfreeSubscriptionId, subId));
+    await db.update(tenantsTable).set({ plan: "free" }).where(eq(tenantsTable.id, tenantId));
+    await db.delete(planSettingsTable).where(eq(planSettingsTable.id, planId));
+    invalidatePlanCache();
   });
 });

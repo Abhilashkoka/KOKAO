@@ -191,6 +191,44 @@ export interface CashfreeSubscriptionEntity {
   subscription_status: string;
   plan_details?: { plan_id?: string };
   current_cycle?: { cycle_end_time?: string } | null;
+  subscription_first_charge_time?: string | null;
+  next_schedule_date?: string | null;
+}
+
+export type CashfreeBillingCycle = "monthly" | "yearly";
+
+/**
+ * The same calendar moment one billing cycle after `from`, anchored to the
+ * user's own purchase date. Month-end dates clamp (Jan 31 → Feb 28/29), so a
+ * cycle never skips a month.
+ */
+export function addBillingCycle(from: Date, cycle: CashfreeBillingCycle): Date {
+  const d = new Date(from.getTime());
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  if (cycle === "yearly") d.setUTCFullYear(d.getUTCFullYear() + 1);
+  else d.setUTCMonth(d.getUTCMonth() + 1);
+  const lastDay = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDay));
+  return d;
+}
+
+/**
+ * End of the period the user has paid for. Before the first recurring debit
+ * Cashfree has no current cycle, so the paid period (charged at checkout)
+ * runs until the first recurring charge. Used identically by the browser
+ * verify route and the webhook so their invoice / credit keys agree.
+ */
+export function cashfreePaidPeriodEnd(
+  live: CashfreeSubscriptionEntity,
+): Date | null {
+  const raw =
+    live.current_cycle?.cycle_end_time ?? live.subscription_first_charge_time;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /** A stable Cashfree id namespaced to KOKAO. */
@@ -300,13 +338,24 @@ export async function createCashfreePlan(params: {
   });
 }
 
-/** Create a subscription on a Cashfree plan (charges via the JS SDK checkout). */
+/**
+ * Create a subscription on a Cashfree plan (charges via the JS SDK checkout).
+ *
+ * Billing is anchored to each user's own purchase date, never a fixed
+ * calendar day: the first cycle is charged at checkout as the authorisation
+ * amount (`firstCyclePaise`, non-refundable), and the first recurring debit
+ * is one cycle later (`firstChargeTime`). Cashfree may push the actual debit a
+ * few days later depending on payment mode; entitlement always follows the
+ * webhook / live status, never this requested date.
+ */
 export async function createCashfreeSubscription(params: {
   subscriptionId?: string;
   planId: string;
   customer: { id: string; email?: string | null; phone?: string | null };
   tags?: Record<string, string>;
   expiryTime?: string;
+  firstChargeTime?: string;
+  firstCyclePaise?: number;
 }): Promise<CashfreeSubscriptionResult> {
   const creds = await requireCredentials();
   const subscriptionId = params.subscriptionId ?? newId("sub");
@@ -328,6 +377,17 @@ export async function createCashfreeSubscription(params: {
         customer_phone: params.customer.phone || "9999999999",
       },
       subscription_expiry_time: expiry,
+      ...(params.firstChargeTime
+        ? { subscription_first_charge_time: params.firstChargeTime }
+        : {}),
+      ...(params.firstCyclePaise && params.firstCyclePaise > 0
+        ? {
+            authorization_details: {
+              authorization_amount: paiseToRupees(params.firstCyclePaise),
+              authorization_amount_refund: false,
+            },
+          }
+        : {}),
       ...(params.tags ? { subscription_tags: params.tags } : {}),
     },
   });
