@@ -785,11 +785,14 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
   const clips: Buffer[] = [];
   let provider: string | null = null;
   let model: string | null = null;
+  // Hero reel: one look is an AI clip, the rest move as photos (no AI cost).
+  const heroIndex = photoPerScene ? (params.job.options?.heroIndex ?? null) : null;
   for (const [i, scene] of scenes.entries()) {
     const shotLabel = scenes.length > 1 ? ` ${i + 1} of ${scenes.length}` : "";
     let image = photo;
+    const stillLook = heroIndex != null && i !== heroIndex;
     if (photoPerScene) {
-      params.onStage?.(`Animating look${shotLabel}`);
+      params.onStage?.(stillLook ? `Preparing look${shotLabel}` : `Animating look${shotLabel}`);
       if (!scene.previewPath) throw new VideoGenProviderError("A photo in this reel is missing.");
       const loaded = await params.load(scene.previewPath);
       // Dressed looks are studio photos on a plain backdrop: crop to fill,
@@ -997,60 +1000,71 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
             visuals: scene.guidedStory.visuals,
           })
         : [];
-    const result = saved?.path
-      ? {
-          buffer: (await params.load(saved.path)).buffer,
-          provider: saved.provider,
-          model: saved.model,
-        }
-      : await generateVideo({
-      mode: assetIds.length ? "text" : image ? "image" : "text",
-      prompt:
-        storyboard.visualsSource === "character"
-          ? `${scene.visual}. ${await getMotionInstruction(motionPreset, cinematography)}`
-          : // "prompt" plans render the persisted post-approval polish when one
-            // was written (see polishStoryboardPrompts); otherwise the approved
-            // text itself. A picked camera move is appended; without one the
-            // prompt is byte-identical to what it always was.
-            promptPlanMotion
-            ? `${promptPlanText}\n\n${promptPlanMotion}`
-            : promptPlanText,
-      aspectRatio,
-      seed,
-       ...(image && !assetIds.length ? { image } : {}),
-       ...(assetIds.length ? { assetIds, identityLocked: true } : {}),
-      ...modelOptions,
-      // Shot lengths come from the approved storyboard, which the duration
-      // bounds already held to what the renderer can deliver — so the board
-      // wins over the model's generic snap here.
-      durationSec: durations[i]!,
-      operationKey: `storyboard_scene:${scene.id}`,
-      meterCtx: videoStoryboardMeterContext(
-        params.job.tenantId,
-        params.job.id,
-        params.meterContext ?? {
-          tenantId: params.job.tenantId,
-          refKind: "videoJob",
-          refId: String(params.job.id),
-          funding: videoFundingSnapshot(params.job),
-          operationKey: `videoJob:${params.job.id}:clip-storyboard-render`,
-        },
-        `storyboard_scene:${scene.id}`,
-      ),
-    });
-    if (!saved?.path) {
-      await params.onCheckpoint?.({
-        sceneIndex: i,
-        buffer: result.buffer,
-        provider: result.provider,
-        model: result.model,
-        durationSec: result.effectiveDurationSec ?? durations[i]!,
-        ...videoGenReceipt(result),
+    let rawClip: Buffer;
+    if (stillLook) {
+      // Gentle photo motion, rendered here: no provider call, no cost.
+      rawClip = await renderSlideshow({
+        images: [image!.buffer],
+        aspectRatio,
+        slideDurationSec: durations[i]!,
       });
+    } else {
+      const result = saved?.path
+        ? {
+            buffer: (await params.load(saved.path)).buffer,
+            provider: saved.provider,
+            model: saved.model,
+          }
+        : await generateVideo({
+        mode: assetIds.length ? "text" : image ? "image" : "text",
+        prompt:
+          storyboard.visualsSource === "character"
+            ? `${scene.visual}. ${await getMotionInstruction(motionPreset, cinematography)}`
+            : // "prompt" plans render the persisted post-approval polish when one
+              // was written (see polishStoryboardPrompts); otherwise the approved
+              // text itself. A picked camera move is appended; without one the
+              // prompt is byte-identical to what it always was.
+              promptPlanMotion
+              ? `${promptPlanText}\n\n${promptPlanMotion}`
+              : promptPlanText,
+        aspectRatio,
+        seed,
+         ...(image && !assetIds.length ? { image } : {}),
+         ...(assetIds.length ? { assetIds, identityLocked: true } : {}),
+        ...modelOptions,
+        // Shot lengths come from the approved storyboard, which the duration
+        // bounds already held to what the renderer can deliver — so the board
+        // wins over the model's generic snap here.
+        durationSec: durations[i]!,
+        operationKey: `storyboard_scene:${scene.id}`,
+        meterCtx: videoStoryboardMeterContext(
+          params.job.tenantId,
+          params.job.id,
+          params.meterContext ?? {
+            tenantId: params.job.tenantId,
+            refKind: "videoJob",
+            refId: String(params.job.id),
+            funding: videoFundingSnapshot(params.job),
+            operationKey: `videoJob:${params.job.id}:clip-storyboard-render`,
+          },
+          `storyboard_scene:${scene.id}`,
+        ),
+      });
+      if (!saved?.path) {
+        await params.onCheckpoint?.({
+          sceneIndex: i,
+          buffer: result.buffer,
+          provider: result.provider,
+          model: result.model,
+          durationSec: result.effectiveDurationSec ?? durations[i]!,
+          ...videoGenReceipt(result),
+        });
+      }
+      provider = result.provider;
+      model = result.model;
+      rawClip = result.buffer;
     }
-    provider = result.provider;
-    model = result.model;
-    let normalized = await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution);
+    let normalized = await normalizeVideo(rawClip, aspectRatio, modelOptions.resolution);
     // Reels cut every clip to whole bars of the track so cuts land on the beat.
     // Fail-soft: a trim problem keeps the full clip rather than losing paid work.
     const barSec = barAlignedSec(

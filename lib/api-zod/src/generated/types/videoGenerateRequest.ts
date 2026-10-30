@@ -227,6 +227,13 @@ export interface VideoGenerateRequest {
      */
   wardrobeNotes?: string | null;
   /**
+     * Showcase reel: only this look is animated with AI; the other looks become gentle photo-motion clips. Priced as one clip.
+     * @minimum 0
+     * @maximum 5
+     * @nullable
+     */
+  heroIndex?: number | null;
+  /**
      * Showcase reel: the kind of outfits, so each clip's move fits (ethnic, formal or casual).
      * @nullable
      */

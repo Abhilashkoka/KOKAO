@@ -61,6 +61,7 @@ import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
 import { requireFeature, requireAnyFeature } from "../lib/featureFlags";
 import videoTemplatesAdminRouter from "./videoTemplatesAdmin";
 import quickCreatePresetsRouter from "./quickCreatePresets";
+import reelCostSettingsRouter from "./reelCostSettings";
 import creatorProgramRouter from "./creatorProgram";
 import promoterPayoutsRouter from "./promoterPayouts";
 
@@ -208,6 +209,7 @@ router.use(videoStylesRouter);
 router.use(videoTemplatesAdminRouter);
 router.use("/quick-create", requireFeature("videoGen"));
 router.use(quickCreatePresetsRouter);
+router.use(reelCostSettingsRouter);
 router.use(assetsRouter);
 router.use(googleDriveRouter);
 router.use(gamificationRouter);

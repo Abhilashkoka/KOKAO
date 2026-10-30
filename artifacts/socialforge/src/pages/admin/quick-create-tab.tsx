@@ -29,6 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { QUICK_CREATE_PRESETS, QUICK_CREATE_VERTICALS } from "@/lib/quick-create-presets";
+import { ReelCostSettingsCard } from "./reel-cost-settings-card";
 
 const LENGTHS = [5, 10, 15, 30] as const;
 const ASPECTS = ["9:16", "1:1", "16:9"] as const;
@@ -134,6 +135,7 @@ export function QuickCreateTab() {
 
   return (
     <div className="space-y-6" data-testid="admin-quick-create-tab">
+      <ReelCostSettingsCard />
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
           <div className="space-y-1">

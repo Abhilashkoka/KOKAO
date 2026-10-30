@@ -32,6 +32,13 @@ fi
 step "Installing packages"
 pnpm install >/tmp/kokao-install.log 2>&1 || { tail -20 /tmp/kokao-install.log; fail "pnpm install failed."; }
 
+step "Applying additive database files"
+# Only CREATE ... IF NOT EXISTS files: safe to run again, never drop anything.
+for f in lib/db/sql/2026-10-16_quick_create_presets.sql lib/db/sql/2026-10-30_reel_cost_settings.sql; do
+  [ -f "$f" ] && psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1 \
+    && echo "  $(basename "$f") ok" || echo "  $(basename "$f") skipped (check DATABASE_URL)"
+done
+
 step "Building the web app"
 if up "http://localhost:$WEB_PORT/"; then
   # The preview is already serving: rebuild only (the running preview picks

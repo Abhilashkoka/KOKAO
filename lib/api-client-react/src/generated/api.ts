@@ -53,6 +53,7 @@ import type {
   AdminPresetCharacterInput,
   AdminPromoterMetrics200,
   AdminPromoterView,
+  AdminReelCostSettings,
   AdminReleaseHeldCommission200,
   AdminReversePromoterCommission200,
   AdminReviewCreator200,
@@ -414,6 +415,8 @@ import type {
   RazorpayAppCredentialStatus,
   RecoverCharacterProvenanceRequest,
   RedeemPromoInput,
+  ReelCostSettings,
+  ReelCostSettingsInput,
   ReferralInfo,
   ReleasePromoterReserves200,
   ReliabilityAnalytics,
@@ -36570,6 +36573,230 @@ export function useListQuickCreatePresets<TData = Awaited<ReturnType<typeof list
 
 
 
+
+export const getGetReelSettingsUrl = () => {
+
+
+
+
+  return `/api/quick-create/reel-settings`
+}
+
+/**
+ * @summary Showcase reel defaults set by the platform admin
+ */
+export const getReelSettings = async ( options?: RequestInit): Promise<ReelCostSettings> => {
+
+  return customFetch<ReelCostSettings>(getGetReelSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReelSettingsQueryKey = () => {
+    return [
+    `/api/quick-create/reel-settings`
+    ] as const;
+    }
+
+
+export const getGetReelSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getReelSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReelSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReelSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReelSettings>>> = ({ signal }) => getReelSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReelSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReelSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getReelSettings>>>
+export type GetReelSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Showcase reel defaults set by the platform admin
+ */
+
+export function useGetReelSettings<TData = Awaited<ReturnType<typeof getReelSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReelSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReelSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetReelCostSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/reel-cost-settings`
+}
+
+/**
+ * @summary Reel cost settings and recent changes (superadmin only)
+ */
+export const adminGetReelCostSettings = async ( options?: RequestInit): Promise<AdminReelCostSettings> => {
+
+  return customFetch<AdminReelCostSettings>(getAdminGetReelCostSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetReelCostSettingsQueryKey = () => {
+    return [
+    `/api/admin/reel-cost-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetReelCostSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetReelCostSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetReelCostSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetReelCostSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetReelCostSettings>>> = ({ signal }) => adminGetReelCostSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetReelCostSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetReelCostSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetReelCostSettings>>>
+export type AdminGetReelCostSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Reel cost settings and recent changes (superadmin only)
+ */
+
+export function useAdminGetReelCostSettings<TData = Awaited<ReturnType<typeof adminGetReelCostSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetReelCostSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetReelCostSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateReelCostSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/reel-cost-settings`
+}
+
+/**
+ * @summary Update reel cost settings (superadmin only, audited)
+ */
+export const adminUpdateReelCostSettings = async (reelCostSettingsInput: ReelCostSettingsInput, options?: RequestInit): Promise<AdminReelCostSettings> => {
+
+  return customFetch<AdminReelCostSettings>(getAdminUpdateReelCostSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(reelCostSettingsInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdateReelCostSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateReelCostSettings>>, TError,{data: BodyType<ReelCostSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateReelCostSettings>>, TError,{data: BodyType<ReelCostSettingsInput>}, TContext> => {
+
+const mutationKey = ['adminUpdateReelCostSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateReelCostSettings>>, {data: BodyType<ReelCostSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateReelCostSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateReelCostSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateReelCostSettings>>>
+    export type AdminUpdateReelCostSettingsMutationBody = BodyType<ReelCostSettingsInput>
+    export type AdminUpdateReelCostSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update reel cost settings (superadmin only, audited)
+ */
+export const useAdminUpdateReelCostSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateReelCostSettings>>, TError,{data: BodyType<ReelCostSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateReelCostSettings>>,
+        TError,
+        {data: BodyType<ReelCostSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateReelCostSettingsMutationOptions(options));
+    }
 
 export const getAdminListQuickCreatePresetsUrl = () => {
 

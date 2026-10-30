@@ -1104,6 +1104,32 @@ describe("videoJobUnits for multi-shot clips", () => {
 });
 
 describe("showcase reel (one clip per photo)", () => {
+  it("hero reel: only the hero look calls the video model, the rest are photo-motion clips", async () => {
+    const storyboard = board({
+      visualsSource: "photo",
+      scenes: [1, 2, 3].map((n) => ({
+        id: `s${n}`,
+        text: "",
+        visual: "Model sways",
+        durationSec: 3,
+        previewPath: `/objects/1/u/look${n}.png`,
+        outfitId: null,
+      })),
+    });
+    await renderClipStoryboard({
+      job: makeJob({
+        engine: "image_to_video",
+        options: { aspectRatio: "9:16", photoClips: true, heroIndex: 1 },
+      }),
+      storyboard,
+      aspectRatio: "9:16",
+      load: async (path) => ({ buffer: Buffer.from(path), mimeType: "image/png" }),
+    });
+    expect(state.generateCalls).toHaveLength(1);
+    expect(state.slideshowCall?.imageCount).toBe(1);
+    expect(state.concatCount).toBe(3);
+  });
+
   it("plans one scene per photo, in order, capped at the reel limit", async () => {
     const photos = Array.from({ length: 8 }, (_, i) => `/objects/1/u/look${i}.png`);
     const result = await plan(

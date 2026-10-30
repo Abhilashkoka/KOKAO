@@ -1849,6 +1849,31 @@ describe("POST /api/ai/generate-video", () => {
       });
       expect(text.status).toBe(400);
       expect(text.body.error).toMatch(/showcase reel/i);
+      const badHero = await request(app).post("/api/ai/generate-video").send({
+        engine: "image_to_video", sourceImagePaths: [photo(1), photo(2)], photoClips: true, heroIndex: 3,
+      });
+      expect(badHero.status).toBe(400);
+    });
+
+    it("hero reel: prices one clip and defaults to the admin reel resolution", async () => {
+      await setStoredVideoGenKey("replicate", "test-token");
+      const tenant = await newTenant();
+      const photos = [1, 2, 3].map((n) => `/objects/${tenant.tenantId}/uploads/look${n}.png`);
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "image_to_video",
+        sourceImagePaths: photos,
+        photoClips: true,
+        heroIndex: 0,
+        durationSec: 5,
+        modelId: "wan-2.2-fast",
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const [job] = await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id));
+      expect(job?.options).toMatchObject({ photoClips: true, heroIndex: 0, resolution: "720p" });
+      expect(res.body.requiredUnits ?? res.body.units).toBe(1);
     });
   });
 

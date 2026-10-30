@@ -49,7 +49,12 @@ export type ReelDraft = {
   wearStyle: "ethnic" | "formal" | "casual";
   looks: ReelLook[];
   music: (Uploaded & { beat: BeatInfo | null }) | null;
-  style: "video" | "photo";
+  /** video: AI clip per look · hero: one AI clip + photo looks · photo: no AI video. */
+  style: "video" | "hero" | "photo";
+  /** Hero reel: the look that becomes the AI clip (first look when unset). */
+  heroLookId: string | null;
+  /** Admin defaults (reel type, bars) are applied once per draft. */
+  settingsApplied: boolean;
   bars: number;
   shape: "9:16" | "1:1" | "16:9";
   motion: string;
@@ -91,6 +96,8 @@ export function emptyDraft(): CreateDraft {
       looks: [],
       music: null,
       style: "video",
+      heroLookId: null,
+      settingsApplied: false,
       bars: 2,
       shape: "9:16",
       motion:

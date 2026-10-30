@@ -67,3 +67,4 @@ export * from "./creditRates";
 export * from "./creditAccounts";
 export * from "./videoPublishes";
 export * from "./quickCreatePresets";
+export * from "./reelCostSettings";

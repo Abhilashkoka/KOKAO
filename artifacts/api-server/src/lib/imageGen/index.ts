@@ -941,6 +941,8 @@ export async function generateImage(
     transparent?: boolean;
     exactMaskedEdit?: ExactMaskedEdit;
     requireReferenceInput?: boolean;
+    /** Output quality tier for providers that offer one (cost control). */
+    quality?: "low" | "medium" | "high";
     /**
      * Immediate review assets may cross a pinned provider boundary when the
      * selected provider cannot consume the required reference. This is not
@@ -999,7 +1001,7 @@ export async function generateImage(
     selection.provider === IMAGE_GEN_AUTO &&
     (await isFeatureEnabled("providerScoring").catch(() => true));
   const imageManualOrder = (await getAiFallbackOrders()).image;
-  const input = { prompt, size: routedSize };
+  const input = { prompt, size: routedSize, ...(opts?.quality ? { quality: opts.quality } : {}) };
 
   // Under auto the ranking IS the decision, so it is computed up front. With a
   // pinned provider the chain is extended only after a failure, so the happy

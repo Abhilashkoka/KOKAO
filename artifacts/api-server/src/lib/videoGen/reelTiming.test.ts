@@ -17,6 +17,8 @@ describe("showcase reel timing and pricing", () => {
     expect(videoJobUnits("image_to_video", { aspectRatio: "9:16", photoClips: true, shotCount: 4 } as never)).toBe(4);
     expect(videoJobUnits("image_to_video", { aspectRatio: "9:16", shotCount: 4 } as never)).toBe(1);
     expect(MAX_REEL_CLIPS).toBe(6);
+    // Hero reel: one AI clip, whatever the number of looks.
+    expect(videoJobUnits("image_to_video", { aspectRatio: "9:16", photoClips: true, shotCount: 5, heroIndex: 0 } as never)).toBe(1);
   });
 
   it("gives men's wear its own moves, never a twirl or a hem lift", () => {

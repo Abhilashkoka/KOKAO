@@ -9,11 +9,13 @@ const searchMusicLibrary = vi.fn();
 const importMusic = vi.fn();
 let uploads = 0;
 let quote: unknown = undefined;
+let reelSettings: unknown = undefined;
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
     useQuoteCredits: () => ({ data: quote }),
+    useGetReelSettings: () => ({ data: reelSettings }),
     useRequestUploadUrl: () => ({
       mutateAsync: async () => ({ uploadURL: "https://upload.test/x", objectPath: `/objects/uploads/${++uploads}` }),
     }),
@@ -30,7 +32,7 @@ vi.mock("@/lib/beat", async (orig) => ({
 }));
 
 const { ShowcaseReel } = await import("./showcase-reel");
-const { __resetDraftStoreForTests } = await import("@/lib/create-draft");
+const { __resetDraftStoreForTests, getDraft } = await import("@/lib/create-draft");
 
 const png = (name: string) => new File(["x"], name, { type: "image/png" });
 
@@ -74,6 +76,7 @@ describe("Showcase reel", () => {
     __resetDraftStoreForTests();
     uploads = 0;
     quote = undefined;
+    reelSettings = undefined;
     generateVideo.mockReset();
     generateImage.mockReset();
     navigate.mockReset();
@@ -181,6 +184,65 @@ describe("Showcase reel", () => {
       expect(screen.getByTestId("reel-style-photo").getAttribute("aria-checked")).toBe("true"),
     );
     expect(screen.getByTestId("reel-video-price").textContent).toContain("1,020");
-    expect(screen.getByText("Top up to unlock")).toBeTruthy();
+    // Both AI options say why they're locked.
+    expect(screen.getAllByText("Top up to unlock")).toHaveLength(2);
+  });
+
+  it("opens on the admin's default reel type and bars", async () => {
+    reelSettings = {
+      tryOnImageQuality: "medium",
+      reelResolution: "720p",
+      defaultBars: 1,
+      heroModeEnabled: true,
+      defaultReelStyle: "hero",
+    };
+    renderReel();
+    await waitFor(() =>
+      expect(screen.getByTestId("reel-style-hero").getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(getDraft().reel.bars).toBe(1);
+  });
+
+  it("hero reel animates only the starred look, at the admin resolution", async () => {
+    reelSettings = {
+      tryOnImageQuality: "medium",
+      reelResolution: "720p",
+      defaultBars: 1,
+      heroModeEnabled: true,
+      defaultReelStyle: "hero",
+    };
+    searchMusicLibrary.mockResolvedValue({
+      tracks: [{ id: "t1", title: "Raga Pop", creator: "A", license: "by", audioUrl: "https://cdn.test/t1.mp3" }],
+    });
+    importMusic.mockResolvedValue({ musicPath: "/objects/music/t1", title: "Raga Pop" });
+    renderReel();
+    await addTwoDressedLooks();
+    fireEvent.click(screen.getByTestId("reel-mood-sitar"));
+    await waitFor(() => expect(screen.getByTestId("reel-use-track-t1")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("reel-use-track-t1"));
+    await waitFor(() => expect(screen.getByTestId("reel-music-info")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("reel-hero-1"));
+    fireEvent.click(screen.getByTestId("reel-generate"));
+    await waitFor(() => expect(generateVideo).toHaveBeenCalled());
+    expect(generateVideo.mock.calls[0][0].data).toMatchObject({
+      engine: "image_to_video",
+      photoClips: true,
+      heroIndex: 1,
+      resolution: "720p",
+    });
+  });
+
+  it("hides the hero option when the admin turns it off", async () => {
+    reelSettings = {
+      tryOnImageQuality: "medium",
+      reelResolution: "720p",
+      defaultBars: 2,
+      heroModeEnabled: false,
+      defaultReelStyle: "video",
+    };
+    renderReel();
+    await waitFor(() => expect(getDraft().reel.settingsApplied).toBe(true));
+    expect(screen.queryByTestId("reel-style-hero")).toBeNull();
   });
 });

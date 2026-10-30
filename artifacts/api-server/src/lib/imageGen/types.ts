@@ -46,6 +46,11 @@ export interface ImageGenInput {
    * so an adapter that ignores it can never be reached with it set.
    */
   transparent?: boolean;
+  /**
+   * Output quality for providers that offer tiers (OpenAI: low/medium/high).
+   * Unset lets the provider choose. Others ignore it.
+   */
+  quality?: "low" | "medium" | "high";
 }
 
 /** Result returned by every provider. */

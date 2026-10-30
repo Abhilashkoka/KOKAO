@@ -58,6 +58,8 @@ export interface ImageGenerationInput {
   exactPrompt?: boolean;
   /** Only route to providers that actually consume the reference image. */
   requireReferenceInput?: boolean;
+  /** Image quality tier (try-on uses the admin reel setting to control cost). */
+  quality?: "low" | "medium" | "high";
 }
 
 export interface ImageGenerationOutcome {
@@ -215,6 +217,7 @@ export async function performImageGeneration(
     ...(input.requireReferenceInput
       ? { requireReferenceInput: true, forceCapabilityFallback: true }
       : {}),
+    ...(input.quality ? { quality: input.quality } : {}),
   });
 
   // Plans with the watermark switch ON get a "Made with KOKAO.in" stamp,
