@@ -9,7 +9,10 @@ import { assertPublicHost } from "./webFetch";
  */
 
 const OPENVERSE_AUDIO_URL = "https://api.openverse.org/v1/audio/";
-const SEARCH_TIMEOUT_MS = 15_000;
+const SEARCH_TIMEOUT_MS = 20_000;
+/** Results per query are reused for this long (the moods are a fixed list). */
+const SEARCH_CACHE_MS = 6 * 60 * 60 * 1000;
+const searchCache = new Map<string, { at: number; tracks: LibraryTrack[] }>();
 const PAGE_SIZE = 12;
 /** Track downloads: same ceiling as uploaded music. */
 export const MAX_LIBRARY_TRACK_BYTES = 15 * 1024 * 1024;
@@ -53,14 +56,43 @@ async function libraryFetch(url: string, init: RequestInit = {}): Promise<Respon
   }
 }
 
-/** Search commercially-licensed music. Returns [] on no results. */
+/**
+ * Search commercially-licensed music. Returns [] on no results.
+ *
+ * Cached per query for 6 hours, retried once, and on failure an older cached
+ * answer is served rather than an error. Openverse's own dead-link check is
+ * not requested: it is the slow part and made searches time out; a dead link
+ * is still caught when the track is imported.
+ */
 export async function searchLibraryMusic(query: string): Promise<LibraryTrack[]> {
+  const key = query.trim().toLowerCase();
+  const cached = searchCache.get(key);
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_MS) return cached.tracks;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const tracks = await searchOpenverse(query);
+      searchCache.set(key, { at: Date.now(), tracks });
+      return tracks;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (cached) return cached.tracks;
+  throw lastError;
+}
+
+/** Test hook. */
+export function __clearMusicSearchCache(): void {
+  searchCache.clear();
+}
+
+async function searchOpenverse(query: string): Promise<LibraryTrack[]> {
   const params = new URLSearchParams({
     q: query,
     license_type: "commercial",
     category: "music",
     page_size: String(PAGE_SIZE),
-    filter_dead: "true",
   });
   const res = await libraryFetch(`${OPENVERSE_AUDIO_URL}?${params}`, {
     headers: { Accept: "application/json" },

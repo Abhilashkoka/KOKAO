@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { searchLibraryMusic, downloadLibraryTrack, MusicLibraryError } from "./musicLibrary";
+import { searchLibraryMusic, downloadLibraryTrack, MusicLibraryError, __clearMusicSearchCache } from "./musicLibrary";
 
 vi.mock("./webFetch", () => ({
   assertPublicHost: vi.fn(async (host: string) => {
@@ -18,6 +18,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe("searchLibraryMusic", () => {
   beforeEach(() => {
+    __clearMusicSearchCache();
     globalThis.fetch = vi.fn();
   });
   afterEach(() => {
@@ -62,6 +63,18 @@ describe("searchLibraryMusic", () => {
   it("surfaces upstream failures as MusicLibraryError", async () => {
     vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({}, 503));
     await expect(searchLibraryMusic("x y")).rejects.toThrow(MusicLibraryError);
+  });
+
+  it("retries once, then serves the cached answer instead of failing", async () => {
+    const ok = jsonResponse({ results: [{ id: "a", title: "Raga", url: "https://cdn.example.com/a.mp3", license: "by" }] });
+    vi.mocked(globalThis.fetch)
+      .mockRejectedValueOnce(new Error("socket hang up"))
+      .mockResolvedValueOnce(ok);
+    expect(await searchLibraryMusic("sitar")).toHaveLength(1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    // Cached: no new request for the same mood.
+    expect(await searchLibraryMusic("Sitar")).toHaveLength(1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 });
 
