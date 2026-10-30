@@ -11,7 +11,8 @@ Applies on top of `feat/ai-error-guarantee`. Branch: `test/lipsync-bakeoff`.
 1. **Atlas Cloud key** — the same `ATLASCLOUD_API_KEY` KOKAO already uses.
    Top up ~$5–10. Two 15s clips cost about $1.05 (v2.0) + $1.80 (v1.5).
 2. **Character image** — one front-facing KOKAO character sheet, face clearly visible.
-3. **Voice track** — the Telugu script below, under 15–20s, as `.mp3` / `.wav`.
+3. **Voice track** — the Telugu script below, under 15–20s, as `.mp3` / `.wav` / `.m4a`,
+   or a phone video (`.mp4` / `.mov`) — the voice is extracted automatically.
    Your own recording or a voice-clone output.
 
 Files can be local paths or `https://` URLs. Local files are sent as data URIs;

@@ -8,7 +8,7 @@
 // Usage:
 //   ATLASCLOUD_API_KEY=... node scripts/src/lipsync-bakeoff.mjs \
 //     --image <https-url | local.png> \
-//     --audio <https-url | local.mp3> \
+//     --audio <https-url | local.mp3 | local.mp4 (voice is extracted)> \
 //     [--label telugu] [--models v2.0,v1.5] [--prompt "..."] [--max-sec 20]
 //
 // Paid calls are checkpointed per model+label: a rerun resumes the accepted
@@ -125,7 +125,30 @@ function firstOutputUrl(outputs) {
   return null;
 }
 
-const audioSec = probeSeconds(existsSync(audioArg) ? resolve(audioArg) : audioArg);
+for (const [flag, value] of [["--image", imageArg], ["--audio", audioArg]]) {
+  if (!/^https:\/\//i.test(value) && !existsSync(resolve(value))) {
+    console.error(`${flag} file not found: ${resolve(value)}\nUpload it to the workspace and use its exact name (quote names with spaces).`);
+    process.exit(2);
+  }
+}
+
+/** A video file as --audio: pull its voice track out with ffmpeg. */
+const VIDEO_EXT = new Set([".mp4", ".mov", ".webm", ".mkv", ".m4v", ".3gp"]);
+let audioSource = audioArg;
+if (VIDEO_EXT.has(extname(audioArg.split("?")[0]).toLowerCase())) {
+  const extracted = resolve(outDir, "voice.mp3");
+  const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-i",
+    /^https:\/\//i.test(audioArg) ? audioArg : resolve(audioArg),
+    "-vn", "-ac", "1", "-ar", "44100", "-b:a", "128k", extracted], { encoding: "utf8" });
+  if (r.status !== 0 || !existsSync(extracted)) {
+    console.error(`could not extract audio from ${audioArg}: ${(r.stderr || r.error?.message || "").trim().slice(0, 300)}`);
+    process.exit(2);
+  }
+  console.log(`extracted voice track → ${extracted}`);
+  audioSource = extracted;
+}
+
+const audioSec = probeSeconds(existsSync(audioSource) ? resolve(audioSource) : audioSource);
 if (audioSec === null) console.warn("could not read audio length; skipping length guard");
 else {
   console.log(`audio: ${audioSec.toFixed(1)}s`);
@@ -136,7 +159,7 @@ else {
 }
 
 const imageInput = await toInput(imageArg);
-const audioInput = await toInput(audioArg);
+const audioInput = await toInput(audioSource);
 const results = [];
 
 for (const key of modelKeys) {
