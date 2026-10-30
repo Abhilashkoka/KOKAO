@@ -6,7 +6,11 @@ import {
   getQuoteCreditsQueryKey,
   useGenerateImage,
   useGenerateVideo,
+  getGetReelSettingsQueryKey,
+  getListVideoModelsQueryKey,
   searchMusicLibrary,
+  useGetReelSettings,
+  useListVideoModels,
   useImportLibraryMusic,
   useQuoteCredits,
   useRequestUploadUrl,
@@ -14,6 +18,7 @@ import {
 } from "@workspace/api-client-react";
 import {
   Clapperboard,
+  Star,
   ImagePlus,
   Images,
   Loader2,
@@ -31,7 +36,11 @@ import { uploadErrorMessage, uploadToStorage } from "@/lib/upload-file";
 import { refreshCreditBalanceSafely } from "@/lib/refresh-credit-balance";
 import { trackProjectEvent } from "@/lib/analytics";
 import { analyzeMusicFile, lookTiming } from "@/lib/beat";
-import { WEAR_STYLES } from "@/lib/quick-create-presets";
+import {
+  WEAR_STYLES,
+  quickCreateDefaultModel,
+  type QuickCreateModelCatalog,
+} from "@/lib/quick-create-presets";
 import {
   getDraft,
   previewOf,
@@ -110,8 +119,43 @@ export function ShowcaseReel({
   const generateVideo = useGenerateVideo();
 
   // State lives in the Create draft store, so it survives leaving the page.
-  const { model, gender, wearStyle, looks, music, style, bars, shape, motion, starting } =
-    useCreateDraft().reel;
+  const {
+    model,
+    gender,
+    wearStyle,
+    looks,
+    music,
+    style: draftStyle,
+    heroLookId,
+    settingsApplied,
+    bars,
+    shape,
+    motion,
+    starting,
+  } = useCreateDraft().reel;
+  // Platform cost controls (Admin → Quick Create → Reel cost settings).
+  const { data: reelSettings } = useGetReelSettings({
+    query: { queryKey: getGetReelSettingsQueryKey(), staleTime: 5 * 60_000 },
+  });
+  const heroEnabled = reelSettings?.heroModeEnabled ?? true;
+  const style = draftStyle === "hero" && !heroEnabled ? "video" : draftStyle;
+  useEffect(() => {
+    if (!reelSettings || settingsApplied) return;
+    const preferred = reelSettings.defaultReelStyle;
+    updateReel({
+      settingsApplied: true,
+      bars: reelSettings.defaultBars,
+      style: preferred === "hero" && !reelSettings.heroModeEnabled ? "video" : preferred,
+    });
+  }, [reelSettings, settingsApplied]);
+  // Reels render on the platform's default image model at the admin's reel
+  // resolution (the server clamps it to what that model supports).
+  const { data: videoModels } = useListVideoModels({
+    query: { queryKey: getListVideoModelsQueryKey(), staleTime: 5 * 60_000 },
+  });
+  const reelModelId =
+    quickCreateDefaultModel(videoModels as QuickCreateModelCatalog | undefined, "image")?.id ?? null;
+  const heroIndex = Math.max(0, looks.findIndex((l) => l.id === heroLookId));
   const [analyzing, setAnalyzing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const outfitInput = useRef<HTMLInputElement>(null);
@@ -346,7 +390,7 @@ export function ShowcaseReel({
   const ready =
     looks.length >= 2 && looks.every((look) => look.dressed) && Boolean(music);
   const anyPending = looks.some((look) => look.pending);
-  const timing = lookTiming(music?.beat ?? null, bars, style);
+  const timing = lookTiming(music?.beat ?? null, bars, style === "photo" ? "photo" : "video");
   const totalSec = Math.round(timing.onScreenSec * looks.length * 10) / 10;
 
   const quoteParams = {
@@ -361,18 +405,30 @@ export function ShowcaseReel({
       staleTime: 30_000,
     },
   });
+  // Hero reel: one AI clip, whatever the number of looks.
+  const heroQuoteParams = { action: "video", durationSec: Math.max(1, timing.clipSec), sceneCount: 1 };
+  const { data: heroQuote } = useQuoteCredits(heroQuoteParams, {
+    query: {
+      queryKey: getQuoteCreditsQueryKey(heroQuoteParams),
+      enabled: creditFunded && heroEnabled && looks.length >= 2,
+      staleTime: 30_000,
+    },
+  });
+  const activeQuote = style === "video" ? quote : style === "hero" ? heroQuote : undefined;
 
   // Low balance: start on the Photo reel (Video stays visible with a top-up
   // note). Only once, and never after the user picked a type themselves.
   const styleTouched = useRef(false);
   const videoUnaffordable = creditFunded && Boolean(quote) && !quote!.sufficient;
+  const heroUnaffordable = creditFunded && Boolean(heroQuote) && !heroQuote!.sufficient;
   useEffect(() => {
-    if (videoUnaffordable && style === "video" && !styleTouched.current) {
+    if (styleTouched.current) return;
+    if ((style === "video" && videoUnaffordable) || (style === "hero" && heroUnaffordable)) {
       styleTouched.current = true;
-      updateReel({ style: "photo" });
+      updateReel({ style: heroEnabled && heroQuote?.sufficient ? "hero" : "photo" });
     }
-  }, [videoUnaffordable, style]);
-  const pickStyle = (next: "video" | "photo") => {
+  }, [videoUnaffordable, heroUnaffordable, style, heroEnabled, heroQuote]);
+  const pickStyle = (next: "video" | "hero" | "photo") => {
     styleTouched.current = true;
     updateReel({ style: next });
   };
@@ -391,11 +447,14 @@ export function ShowcaseReel({
       reviewStoryboard: false,
     };
     const data =
-      style === "video"
+      style !== "photo"
         ? {
             ...common,
             engine: "image_to_video" as const,
             photoClips: true,
+            ...(style === "hero" ? { heroIndex } : {}),
+            ...(reelModelId ? { modelId: reelModelId } : {}),
+            ...(reelSettings ? { resolution: reelSettings.reelResolution } : {}),
             modelGender: gender,
             wearStyle,
             prompt: `${motion.trim()}. No on-screen text, captions, logos or watermarks.`,
@@ -413,7 +472,7 @@ export function ShowcaseReel({
     generateVideo
       .mutateAsync({ data })
       .then((job) => {
-        trackProjectEvent("video_generation_started", { engine: data.engine });
+        trackProjectEvent("video_generation_started", { engine: data.engine, reelType: style });
         void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
         if (mounted.current) navigate(`/results?job=${job.id}`);
         else toast({ title: "Your reel has started", description: "Find it in Results." });
@@ -583,8 +642,24 @@ export function ShowcaseReel({
                   )}
                 </div>
                 <div className="flex items-center justify-between gap-1">
-                  <span className="text-xs font-semibold">
+                  <span className="flex items-center gap-1 text-xs font-semibold">
                     Look {index + 1}
+                    {style === "hero" && (
+                      <button
+                        type="button"
+                        onClick={() => updateReel({ heroLookId: look.id })}
+                        aria-pressed={index === heroIndex}
+                        aria-label={`Make look ${index + 1} the hero`}
+                        title="The hero look becomes the AI video"
+                        data-testid={`reel-hero-${index}`}
+                        className={cn(
+                          "rounded-full p-1",
+                          index === heroIndex ? "text-amber-500" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <Star className={cn("h-3.5 w-3.5", index === heroIndex && "fill-current")} />
+                      </button>
+                    )}
                   </span>
                   <div className="flex gap-1">
                     <Button
@@ -801,53 +876,68 @@ export function ShowcaseReel({
             ~{totalSec}s
           </dd>
         </dl>
-        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Reel type">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={style === "video"}
-            onClick={() => pickStyle("video")}
-            data-testid="reel-style-video"
-            className={cn(
-              "flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors",
-              style === "video"
-                ? "border-primary bg-pastel-lavender/60 ring-2 ring-primary/20"
-                : "hover:bg-muted/60",
-            )}
-          >
-            <span className="flex items-center gap-1 text-sm font-semibold">
-              <Clapperboard className="h-4 w-4" /> Video reel
-            </span>
-            <span className="text-xs text-muted-foreground">She twirls, walks and turns</span>
-            <span className="text-xs font-semibold" data-testid="reel-video-price">
-              ~3 min
-              {creditFunded && quote ? ` · ${quote.credits.toLocaleString("en-IN")} cr` : ""}
-            </span>
-            {videoUnaffordable && (
-              <span className="text-xs font-semibold text-destructive">Top up to unlock</span>
-            )}
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={style === "photo"}
-            onClick={() => pickStyle("photo")}
-            data-testid="reel-style-photo"
-            className={cn(
-              "flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors",
-              style === "photo"
-                ? "border-primary bg-pastel-mint/60 ring-2 ring-primary/20"
-                : "hover:bg-muted/60",
-            )}
-          >
-            <span className="flex items-center gap-1 text-sm font-semibold">
-              <Images className="h-4 w-4" /> Photo reel
-            </span>
-            <span className="text-xs text-muted-foreground">Looks glide in on the beat</span>
-            <span className="text-xs font-semibold" data-testid="reel-photo-price">
-              ~20 s · no video credits
-            </span>
-          </button>
+        <div className="grid gap-2" role="radiogroup" aria-label="Reel type">
+          {(
+            [
+              {
+                id: "video" as const,
+                show: true,
+                icon: Clapperboard,
+                title: "Video reel",
+                text: "Every look is an AI video",
+                price: `~3 min${creditFunded && quote ? ` · ${quote.credits.toLocaleString("en-IN")} cr` : ""}`,
+                locked: videoUnaffordable,
+                tone: "bg-pastel-lavender/60",
+              },
+              {
+                id: "hero" as const,
+                show: heroEnabled,
+                icon: Star,
+                title: "Hero reel",
+                text: "Your ★ look is an AI video, the rest move as photos",
+                price: `~1 min${creditFunded && heroQuote ? ` · ${heroQuote.credits.toLocaleString("en-IN")} cr` : ""}`,
+                locked: heroUnaffordable,
+                tone: "bg-pastel-peach/60",
+              },
+              {
+                id: "photo" as const,
+                show: true,
+                icon: Images,
+                title: "Photo reel",
+                text: "Looks glide in on the beat",
+                price: "~20 s · no video credits",
+                locked: false,
+                tone: "bg-pastel-mint/60",
+              },
+            ] as const
+          )
+            .filter((c) => c.show)
+            .map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                role="radio"
+                aria-checked={style === c.id}
+                onClick={() => pickStyle(c.id)}
+                data-testid={`reel-style-${c.id}`}
+                className={cn(
+                  "flex items-start gap-3 rounded-2xl border p-3 text-left transition-colors",
+                  style === c.id ? `border-primary ${c.tone} ring-2 ring-primary/20` : "hover:bg-muted/60",
+                )}
+              >
+                <c.icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">{c.title}</span>
+                  <span className="block text-xs text-muted-foreground">{c.text}</span>
+                  {c.locked && (
+                    <span className="block text-xs font-semibold text-destructive">Top up to unlock</span>
+                  )}
+                </span>
+                <span className="shrink-0 text-xs font-semibold" data-testid={`reel-${c.id}-price`}>
+                  {c.price}
+                </span>
+              </button>
+            ))}
         </div>
         <Button
           size="lg"
@@ -857,9 +947,7 @@ export function ShowcaseReel({
             !ready ||
             disabled ||
             starting ||
-            (creditFunded && style === "video" && quote
-              ? !quote.sufficient
-              : false)
+            (creditFunded && activeQuote ? !activeQuote.sufficient : false)
           }
           data-testid="reel-generate"
         >
@@ -869,9 +957,9 @@ export function ShowcaseReel({
             <Sparkles className="mr-2 h-5 w-5" />
           )}
           Make the reel
-          {creditFunded && style === "video" && quote && (
+          {creditFunded && activeQuote && (
             <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-sm">
-              {quote.credits.toLocaleString("en-IN")} credits
+              {activeQuote.credits.toLocaleString("en-IN")} credits
             </span>
           )}
         </Button>
@@ -887,7 +975,9 @@ export function ShowcaseReel({
         <p className="text-xs text-muted-foreground">
           {style === "video"
             ? "Each look is its own AI clip, joined on the beat."
-            : "Photos move gently and change on the beat. Faster and cheaper."}
+            : style === "hero"
+              ? "Tap ★ on a look to choose which one becomes the AI video."
+              : "Photos move gently and change on the beat. Faster and cheaper."}
         </p>
       </aside>
     </div>

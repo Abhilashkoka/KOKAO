@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { getReelCostSettings } from "../lib/reelCostSettings";
 import { enforceFreeVideoRoutes, isStockOnlyVideo, FREE_VIDEO_MESSAGE, FREE_VIDEO_BILLING_MESSAGE } from "../lib/freeVideoPolicy";
 import { createHash, randomUUID } from "node:crypto";
 import { videoLibraryCopySource } from "../lib/videoLibraryCopySource";
@@ -11132,6 +11133,19 @@ async function generateVideoHandler(
       res.status(400).json({ error: `A showcase reel needs 2 to ${MAX_REEL_CLIPS} photos.` });
       return;
     }
+    if (body.heroIndex != null) {
+      if (body.heroIndex >= sourceImagePaths.length) {
+        res.status(400).json({ error: "The hero look must be one of the reel's photos." });
+        return;
+      }
+      if (!(await getReelCostSettings()).heroModeEnabled) {
+        res.status(400).json({ error: "Hero reels are turned off. Choose Video reel or Photo reel." });
+        return;
+      }
+    }
+  } else if (body.heroIndex != null) {
+    res.status(400).json({ error: "A hero look only applies to a showcase reel." });
+    return;
   }
   if (body.engine === "slideshow") {
     if (sourceImagePaths.length === 0) {
@@ -12728,7 +12742,14 @@ async function generateVideoHandler(
     // Validated above. A slideshow runs no model, so it never carries one —
     // which also keeps videoJobUnits from ever multiplying a slideshow.
     modelId: body.engine === "slideshow" ? null : (body.modelId ?? null),
-    resolution: body.engine === "slideshow" ? null : (body.resolution ?? null),
+    // Reels fall back to the admin's reel resolution (a cost control).
+    resolution:
+      body.engine === "slideshow"
+        ? null
+        : (body.resolution ??
+          (body.engine === "image_to_video" && body.photoClips
+            ? (await getReelCostSettings()).reelResolution
+            : null)),
     quality: body.engine === "slideshow" ? null : (body.quality ?? null),
     generateAudio:
       body.engine === "slideshow" ? null : (body.generateAudio ?? null),
@@ -12755,6 +12776,9 @@ async function generateVideoHandler(
       : {}),
     ...(body.engine === "image_to_video" && body.photoClips && body.wearStyle
       ? { wearStyle: body.wearStyle }
+      : {}),
+    ...(body.engine === "image_to_video" && body.photoClips && body.heroIndex != null
+      ? { heroIndex: body.heroIndex }
       : {}),
     beatSec:
       (body.engine === "slideshow" || body.photoClips) && body.beatSec ? body.beatSec : null,

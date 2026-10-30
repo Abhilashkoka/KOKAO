@@ -57,6 +57,7 @@ export async function generateWithOpenAIBuiltin(
   const output = {
     output_format: "png" as const,
     ...(input.transparent ? { background: "transparent" as const } : {}),
+    ...(input.quality ? { quality: input.quality } : {}),
   };
   if (input.editMask && !input.referenceImage) {
     throw new ImageGenProviderError("An image edit mask requires a reference image.");

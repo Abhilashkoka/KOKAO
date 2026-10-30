@@ -13615,6 +13615,65 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/QuickCreatePreset"
+  /quick-create/reel-settings:
+    get:
+      operationId: getReelSettings
+      tags: [ai]
+      summary: Showcase reel defaults set by the platform admin
+      responses:
+        "200":
+          description: Reel defaults
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReelCostSettings"
+  /admin/reel-cost-settings:
+    get:
+      operationId: adminGetReelCostSettings
+      tags: [admin]
+      summary: Reel cost settings and recent changes (superadmin only)
+      responses:
+        "200":
+          description: Settings and change history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminReelCostSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateReelCostSettings
+      tags: [admin]
+      summary: Update reel cost settings (superadmin only, audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReelCostSettingsInput"
+      responses:
+        "200":
+          description: Saved settings and change history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminReelCostSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/quick-create-presets:
     get:
       operationId: adminListQuickCreatePresets
@@ -17347,6 +17406,67 @@ components:
           type: integer
           minimum: 0
           maximum: 1000
+    ReelCostSettingsInput:
+      type: object
+      additionalProperties: false
+      required: [tryOnImageQuality, reelResolution, defaultBars, heroModeEnabled, defaultReelStyle]
+      properties:
+        tryOnImageQuality:
+          type: string
+          enum: [auto, low, medium, high]
+          description: Image quality used when dressing a model.
+        reelResolution:
+          type: string
+          enum: ["480p", "720p", "1080p"]
+          description: Resolution of each AI clip in a reel.
+        defaultBars:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: Bars of music each look stays on screen by default.
+        heroModeEnabled:
+          type: boolean
+          description: Offer the Hero reel (one AI clip, other looks as photos).
+        defaultReelStyle:
+          type: string
+          enum: [video, hero, photo]
+          description: Reel type selected when a reel opens.
+    ReelCostSettings:
+      allOf:
+        - $ref: "#/components/schemas/ReelCostSettingsInput"
+        - type: object
+          required: [updatedAt, updatedBy]
+          properties:
+            updatedAt:
+              type: ["string", "null"]
+              format: date-time
+            updatedBy:
+              type: ["string", "null"]
+    ReelCostSettingsChange:
+      type: object
+      required: [at, by, from, to]
+      properties:
+        at:
+          type: string
+          format: date-time
+        by:
+          type: ["string", "null"]
+        from:
+          type: ["string", "null"]
+          description: Previous settings as JSON.
+        to:
+          type: ["string", "null"]
+          description: New settings as JSON.
+    AdminReelCostSettings:
+      type: object
+      required: [settings, history]
+      properties:
+        settings:
+          $ref: "#/components/schemas/ReelCostSettings"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReelCostSettingsChange"
     QuickCreatePreset:
       type: object
       required: [id, label, vertical, prompt, durationSec, aspect, photoHint, musicPrompt, published, sortOrder]
@@ -23190,6 +23310,13 @@ components:
           description: >-
             topic_to_video character mode; costume-change instructions
             (e.g. "switch to gym wear for the workout scenes").
+        heroIndex:
+          type: ["integer", "null"]
+          minimum: 0
+          maximum: 5
+          description: >-
+            Showcase reel: only this look is animated with AI; the other looks
+            become gentle photo-motion clips. Priced as one clip.
         wearStyle:
           type: ["string", "null"]
           enum: [ethnic, formal, casual, null]

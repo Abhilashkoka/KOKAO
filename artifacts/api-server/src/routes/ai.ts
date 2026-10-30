@@ -99,6 +99,7 @@ import {
   ReferenceImageError,
 } from "../lib/referenceGuide";
 import { buildTryOnReference, tryOnInstruction } from "../lib/tryOn";
+import { getReelCostSettings } from "../lib/reelCostSettings";
 import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
 import { getMeterMode, type MeterMode } from "../lib/creditRates";
 import { applyMadeWithWatermark } from "../lib/watermark";
@@ -1639,6 +1640,12 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
           )
         : imageGoverned ? imageGoverned.text : compiledUserPrompt,
       ...(tryOn ? { exactPrompt: true, requireReferenceInput: true } : {}),
+      // Dressing quality is a platform cost control (Admin → Reel cost settings).
+      ...(tryOn
+        ? await getReelCostSettings().then((s) =>
+            s.tryOnImageQuality === "auto" ? {} : { quality: s.tryOnImageQuality },
+          )
+        : {}),
       size,
       brandKitId: parsed.data.brandKitId ?? null,
       referenceImage,

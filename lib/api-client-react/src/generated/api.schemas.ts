@@ -2388,6 +2388,88 @@ export interface QuickCreatePresetInput {
   sortOrder?: number;
 }
 
+/**
+ * Image quality used when dressing a model.
+ */
+export type ReelCostSettingsInputTryOnImageQuality = typeof ReelCostSettingsInputTryOnImageQuality[keyof typeof ReelCostSettingsInputTryOnImageQuality];
+
+
+export const ReelCostSettingsInputTryOnImageQuality = {
+  auto: 'auto',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+} as const;
+
+/**
+ * Resolution of each AI clip in a reel.
+ */
+export type ReelCostSettingsInputReelResolution = typeof ReelCostSettingsInputReelResolution[keyof typeof ReelCostSettingsInputReelResolution];
+
+
+export const ReelCostSettingsInputReelResolution = {
+  '480p': '480p',
+  '720p': '720p',
+  '1080p': '1080p',
+} as const;
+
+/**
+ * Reel type selected when a reel opens.
+ */
+export type ReelCostSettingsInputDefaultReelStyle = typeof ReelCostSettingsInputDefaultReelStyle[keyof typeof ReelCostSettingsInputDefaultReelStyle];
+
+
+export const ReelCostSettingsInputDefaultReelStyle = {
+  video: 'video',
+  hero: 'hero',
+  photo: 'photo',
+} as const;
+
+export interface ReelCostSettingsInput {
+  /** Image quality used when dressing a model. */
+  tryOnImageQuality: ReelCostSettingsInputTryOnImageQuality;
+  /** Resolution of each AI clip in a reel. */
+  reelResolution: ReelCostSettingsInputReelResolution;
+  /**
+     * Bars of music each look stays on screen by default.
+     * @minimum 1
+     * @maximum 3
+     */
+  defaultBars: number;
+  /** Offer the Hero reel (one AI clip, other looks as photos). */
+  heroModeEnabled: boolean;
+  /** Reel type selected when a reel opens. */
+  defaultReelStyle: ReelCostSettingsInputDefaultReelStyle;
+}
+
+export type ReelCostSettings = ReelCostSettingsInput & ({
+  /** @nullable */
+  updatedAt: string | null;
+  /** @nullable */
+  updatedBy: string | null;
+});
+
+export interface ReelCostSettingsChange {
+  at: string;
+  /** @nullable */
+  by: string | null;
+  /**
+     * Previous settings as JSON.
+     * @nullable
+     */
+  from: string | null;
+  /**
+     * New settings as JSON.
+     * @nullable
+     */
+  to: string | null;
+}
+
+export interface AdminReelCostSettings {
+  settings: ReelCostSettings;
+  history: ReelCostSettingsChange[];
+}
+
 export type QuickCreatePresetVertical = typeof QuickCreatePresetVertical[keyof typeof QuickCreatePresetVertical];
 
 
@@ -9926,6 +10008,13 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   wardrobeNotes?: string | null;
+  /**
+     * Showcase reel: only this look is animated with AI; the other looks become gentle photo-motion clips. Priced as one clip.
+     * @minimum 0
+     * @maximum 5
+     * @nullable
+     */
+  heroIndex?: number | null;
   /**
      * Showcase reel: the kind of outfits, so each clip's move fits (ethnic, formal or casual).
      * @nullable

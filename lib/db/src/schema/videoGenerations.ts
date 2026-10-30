@@ -975,6 +975,11 @@ export interface VideoJobOptions {
   modelGender?: "woman" | "man" | null;
   /** Showcase reel: ethnic, formal or casual outfits; picks the move set. */
   wearStyle?: "ethnic" | "formal" | "casual" | null;
+  /**
+   * Hero reel: only this look is an AI clip; the others are photo-motion
+   * clips rendered locally. Priced as one clip.
+   */
+  heroIndex?: number | null;
   /** Reel timing: seconds per bar of the uploaded track. Each clip/slide is cut
    * to a whole number of bars so the cuts land on the music. */
   beatSec?: number | null;

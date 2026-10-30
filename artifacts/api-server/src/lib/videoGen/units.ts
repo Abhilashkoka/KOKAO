@@ -169,7 +169,8 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     units = clipShotCount(options?.shotCount);
   } else if (engine === "image_to_video" && options?.photoClips) {
     // Showcase reel: one image-to-video generation per photo, fixed at enqueue.
-    units = clipShotCount(options.shotCount);
+    // A hero reel animates only one look with AI.
+    units = options.heroIndex != null ? 1 : clipShotCount(options.shotCount);
   } else if (engine === "topic_to_video" && options?.visualsSource === "character") {
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = options.templateRuntime?.maxSceneCount ??

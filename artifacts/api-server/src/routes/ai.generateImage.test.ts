@@ -636,6 +636,8 @@ describe("try-on images", () => {
     };
     expect(input.exactPrompt).toBe(true);
     expect(input.requireReferenceInput).toBe(true);
+    // Dressing uses the admin's reel image quality (default: medium).
+    expect((input as { quality?: string }).quality).toBe("medium");
     expect(input.userPrompt).toContain("SAME person from the left");
     expect(input.userPrompt).toContain("Scene idea: sways gently");
     expect(input.referenceImage.mimeType).toBe("image/png");

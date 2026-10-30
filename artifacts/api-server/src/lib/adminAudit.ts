@@ -26,6 +26,7 @@ export type AdminAuditAction =
   | "app_brand_change"
   | "landing_content_change"
   | "email_settings_change"
+  | "reel_cost_settings_change"
   | "design_skill_change"
   | "feature_flag_change"
   | "asr_provider_change"

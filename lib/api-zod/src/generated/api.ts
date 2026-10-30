@@ -16272,6 +16272,9 @@ export const generateVideoBodyParagraphCountMax = 3;
 export const generateVideoBodyVisualsSourceDefault = `stock`;
 export const generateVideoBodyWardrobeNotesMax = 500;
 
+export const generateVideoBodyHeroIndexMin = 0;
+export const generateVideoBodyHeroIndexMax = 5;
+
 export const generateVideoBodyBeatSecMin = 0.5;
 export const generateVideoBodyBeatSecMax = 8;
 
@@ -16386,6 +16389,7 @@ export const GenerateVideoBody = zod.object({
   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
   "scriptVariant": zod.union([zod.enum(['marketing', 'training', 'social_short']).describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),zod.null()]).optional().describe('Which kind of video this is. Layers the matching Prompt Kit script variant over the shared rules. Null (or omitted) keeps the base script prompt, which is the pre-variant behaviour.'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
+  "heroIndex": zod.number().min(generateVideoBodyHeroIndexMin).max(generateVideoBodyHeroIndexMax).nullish().describe('Showcase reel: only this look is animated with AI; the other looks become gentle photo-motion clips. Priced as one clip.'),
   "wearStyle": zod.union([zod.literal('ethnic'),zod.literal('formal'),zod.literal('casual'),zod.literal(null)]).nullish().describe('Showcase reel: the kind of outfits, so each clip\'s move fits (ethnic, formal or casual).'),
   "modelGender": zod.union([zod.literal('woman'),zod.literal('man'),zod.literal(null)]).nullish().describe('Showcase reel: who models the looks, so each clip\'s move fits (a twirl for women\'s wear, a confident walk for men\'s wear).'),
   "photoClips": zod.boolean().optional().describe('Showcase reel (image_to_video only): animate each of 2-6 source images as its own clip, in order, joined into one video. Each clip is a separate generation and is priced as such.'),
@@ -43736,6 +43740,91 @@ export const ListQuickCreatePresetsResponseItem = zod.object({
   "sortOrder": zod.number()
 })
 export const ListQuickCreatePresetsResponse = zod.array(ListQuickCreatePresetsResponseItem)
+
+
+/**
+ * @summary Showcase reel defaults set by the platform admin
+ */
+export const getReelSettingsResponseOneDefaultBarsMax = 3;
+
+
+
+export const GetReelSettingsResponse = zod.object({
+  "tryOnImageQuality": zod.enum(['auto', 'low', 'medium', 'high']).describe('Image quality used when dressing a model.'),
+  "reelResolution": zod.enum(['480p', '720p', '1080p']).describe('Resolution of each AI clip in a reel.'),
+  "defaultBars": zod.number().min(1).max(getReelSettingsResponseOneDefaultBarsMax).describe('Bars of music each look stays on screen by default.'),
+  "heroModeEnabled": zod.boolean().describe('Offer the Hero reel (one AI clip, other looks as photos).'),
+  "defaultReelStyle": zod.enum(['video', 'hero', 'photo']).describe('Reel type selected when a reel opens.')
+}).and(zod.object({
+  "updatedAt": zod.coerce.date().nullable(),
+  "updatedBy": zod.string().nullable()
+}))
+
+
+/**
+ * @summary Reel cost settings and recent changes (superadmin only)
+ */
+export const adminGetReelCostSettingsResponseSettingsOneDefaultBarsMax = 3;
+
+
+
+export const AdminGetReelCostSettingsResponse = zod.object({
+  "settings": zod.object({
+  "tryOnImageQuality": zod.enum(['auto', 'low', 'medium', 'high']).describe('Image quality used when dressing a model.'),
+  "reelResolution": zod.enum(['480p', '720p', '1080p']).describe('Resolution of each AI clip in a reel.'),
+  "defaultBars": zod.number().min(1).max(adminGetReelCostSettingsResponseSettingsOneDefaultBarsMax).describe('Bars of music each look stays on screen by default.'),
+  "heroModeEnabled": zod.boolean().describe('Offer the Hero reel (one AI clip, other looks as photos).'),
+  "defaultReelStyle": zod.enum(['video', 'hero', 'photo']).describe('Reel type selected when a reel opens.')
+}).and(zod.object({
+  "updatedAt": zod.coerce.date().nullable(),
+  "updatedBy": zod.string().nullable()
+})),
+  "history": zod.array(zod.object({
+  "at": zod.coerce.date(),
+  "by": zod.string().nullable(),
+  "from": zod.string().nullable().describe('Previous settings as JSON.'),
+  "to": zod.string().nullable().describe('New settings as JSON.')
+}))
+})
+
+
+/**
+ * @summary Update reel cost settings (superadmin only, audited)
+ */
+export const adminUpdateReelCostSettingsBodyDefaultBarsMax = 3;
+
+
+
+export const AdminUpdateReelCostSettingsBody = zod.object({
+  "tryOnImageQuality": zod.enum(['auto', 'low', 'medium', 'high']).describe('Image quality used when dressing a model.'),
+  "reelResolution": zod.enum(['480p', '720p', '1080p']).describe('Resolution of each AI clip in a reel.'),
+  "defaultBars": zod.number().min(1).max(adminUpdateReelCostSettingsBodyDefaultBarsMax).describe('Bars of music each look stays on screen by default.'),
+  "heroModeEnabled": zod.boolean().describe('Offer the Hero reel (one AI clip, other looks as photos).'),
+  "defaultReelStyle": zod.enum(['video', 'hero', 'photo']).describe('Reel type selected when a reel opens.')
+})
+
+export const adminUpdateReelCostSettingsResponseSettingsOneDefaultBarsMax = 3;
+
+
+
+export const AdminUpdateReelCostSettingsResponse = zod.object({
+  "settings": zod.object({
+  "tryOnImageQuality": zod.enum(['auto', 'low', 'medium', 'high']).describe('Image quality used when dressing a model.'),
+  "reelResolution": zod.enum(['480p', '720p', '1080p']).describe('Resolution of each AI clip in a reel.'),
+  "defaultBars": zod.number().min(1).max(adminUpdateReelCostSettingsResponseSettingsOneDefaultBarsMax).describe('Bars of music each look stays on screen by default.'),
+  "heroModeEnabled": zod.boolean().describe('Offer the Hero reel (one AI clip, other looks as photos).'),
+  "defaultReelStyle": zod.enum(['video', 'hero', 'photo']).describe('Reel type selected when a reel opens.')
+}).and(zod.object({
+  "updatedAt": zod.coerce.date().nullable(),
+  "updatedBy": zod.string().nullable()
+})),
+  "history": zod.array(zod.object({
+  "at": zod.coerce.date(),
+  "by": zod.string().nullable(),
+  "from": zod.string().nullable().describe('Previous settings as JSON.'),
+  "to": zod.string().nullable().describe('New settings as JSON.')
+}))
+})
 
 
 /**

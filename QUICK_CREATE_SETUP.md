@@ -102,3 +102,17 @@ The API log is at `/tmp/api.log`.
   - In Video reels it also sets the **moves**. Each model and style has its own six moves, for example buttoning a jacket for formal wear or a relaxed walk for casual wear.
 - **Garment prints, graphics and logos are kept.** Only text that isn't part of the garment (shop signs, price tags, watermarks) is ignored.
 - New template: **Casual Showcase (Men)**. Templates mentioning suit, blazer or office pick Formal; jeans, tee or street pick Casual; saree, kurta or sherwani pick Ethnic.
+
+## Reel cost settings (Admin → Quick Create)
+
+One card controls what a Showcase reel costs. Changes apply to every workspace from the next reel, and each save is listed in **Change history** (from the admin audit log: who, when, from → to).
+
+| Setting | Default | Effect |
+|---|---|---|
+| Dressing image quality | Medium | gpt-image-2 quality for dressing a model. Medium is about ₹4 per look; High is about ₹16. |
+| Reel video resolution | 720p | Resolution of each AI clip in a reel; about half the cost of 1080p. |
+| Default bars per look | 1 | Shorter clips (about 2–3 s) cost less to generate. |
+| Offer Hero reel | On | One look (★) is an AI video and the rest move as photos. Priced as one clip. |
+| Default reel type | Hero | What a new reel opens on. |
+
+Database: `lib/db/sql/2026-10-30_reel_cost_settings.sql` (additive). `scripts/kokao-update.sh` runs it on the development database. For production, run it once in the production database console. Until it is run, reels use the defaults above and saving shows an error.
