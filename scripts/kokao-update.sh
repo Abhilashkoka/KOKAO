@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One command to update and (re)start the KOKAO preview on Replit.
 #
-#   bash scripts/kokao-update.sh            pull feat/quick-create-v2, rebuild, restart
+#   bash scripts/kokao-update.sh            pull feat/ai-error-guarantee, rebuild, restart
 #   bash scripts/kokao-update.sh <branch>   same, from another branch
 #   bash scripts/kokao-update.sh --no-pull  just rebuild and restart (e.g. after Replit slept)
 #
@@ -12,7 +12,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 WEB_PORT=18493
 API_PORT=8080
-BRANCH="feat/quick-create-v2"
+BRANCH="feat/ai-error-guarantee"
 PULL=1
 case "${1:-}" in
   --no-pull) PULL=0 ;;
@@ -34,9 +34,9 @@ pnpm install >/tmp/kokao-install.log 2>&1 || { tail -20 /tmp/kokao-install.log; 
 
 step "Applying additive database files"
 # Only CREATE ... IF NOT EXISTS files: safe to run again, never drop anything.
-for f in lib/db/sql/2026-10-16_quick_create_presets.sql lib/db/sql/2026-10-30_reel_cost_settings.sql; do
+for f in lib/db/sql/2026-10-16_quick_create_presets.sql lib/db/sql/2026-10-30_reel_cost_settings.sql lib/db/sql/2026-10-30_trust_goodwill_ai_error.sql; do
   [ -f "$f" ] && psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1 \
-    && echo "  $(basename "$f") ok" || echo "  $(basename "$f") skipped (check DATABASE_URL)"
+    && echo "  $(basename "$f") ok" || echo "  ✖ $(basename "$f") FAILED (check DATABASE_URL) — the app will error until this is applied"
 done
 
 step "Building the web app"
