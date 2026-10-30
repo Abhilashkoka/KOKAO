@@ -50,3 +50,6 @@ Thumbs.db
 artifacts/api-server/.credentials-guard-snapshot.json
 artifacts/api-server/src/.browser-test-*.mjs
 /generated-artifacts/
+
+# Lipsync bake-off output (paid test clips, checkpoints)
+attached_assets/generated_videos/lipsync-bakeoff/
