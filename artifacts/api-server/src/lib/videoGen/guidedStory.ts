@@ -1850,6 +1850,8 @@ export async function generateGuidedStoryScript(params: {
   references?: GuidedStoryReferenceLibrary | null;
   /** What the script must deliver. */
   requirements?: GuidedStoryRequirements | null;
+  /** Shop-promo face bubble: footage scenes become on-camera close-ups. */
+  faceBubble?: boolean;
   /** Frozen funding from the owning route; omitted callers remain legacy shadow work. */
   meterContext?: MeterContext | null;
 }) {
@@ -1874,7 +1876,7 @@ export async function generateGuidedStoryScript(params: {
     : "";
   const productBrief = guidedProductScriptBrief(params.products);
   const hero = isProductHero(params.products);
-  const referenceBrief = guidedReferenceScriptBrief(params.references);
+  const referenceBrief = guidedReferenceScriptBrief(params.references, { faceBubble: params.faceBubble });
   const requirementsBrief = guidedRequirementsScriptBrief(params.requirements);
   const outputFormat = "Return only JSON with title, logline, warnings, roles[{id,name,description,referenceId}], scenes[{id,startMs,endMs,visualDirection,roleIds,productIds,referenceIds,shot,lines[{id,ownerRoleId,kind,text,romanizedPronunciation,englishTranslation,startMs,endMs}]}]. roleIds lists every role visibly present; productIds lists the brand product ids shown in the scene (empty when none); referenceIds lists the upload ids used in the scene (empty when none); a role's referenceId is the character upload id that casts it (null otherwise); shot is {type,camera,lighting,angle} on product-hero scripts and null otherwise; kind is dialogue or narration; dialogue ownerRoleId must be a role id. For Hindi, Telugu, and Tamil, romanizedPronunciation must be a faithful, readable Latin-letter pronunciation of text and englishTranslation must be its faithful English meaning; both are display only. For English, use null for both.";
   const runtimeContext = [

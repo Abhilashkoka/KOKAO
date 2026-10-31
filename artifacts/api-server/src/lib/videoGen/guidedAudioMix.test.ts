@@ -9,6 +9,7 @@ import {
   guidedFinishingArgs,
   guidedSceneWindows,
   planGuidedFinishing,
+  faceBubbleFilters,
   pruneGuidedAudioChoices,
   validateGuidedAudioChoices,
   GuidedAudioChoicesError,
@@ -156,3 +157,43 @@ describe.skipIf(!hasFfmpeg)("applyGuidedFinishing (ffmpeg)", () => {
     })).rejects.toThrow(/@bgm changed/);
   }, 60_000);
 });
+
+describe("presenter face bubble", () => {
+  const snapshot = (faceBubble: unknown) => ({
+    script,
+    references: library,
+    promoOverlays: { version: 1, textOverlays: [], faceBubble },
+  }) as unknown as NonNullable<VideoJobOptions["guidedStory"]>;
+
+  it("is planned only when enabled and the story has footage", () => {
+    expect(planGuidedFinishing(snapshot({ enabled: true, corner: "top_left" }), 8)?.faceBubble).toEqual({ corner: "top_left" });
+    expect(planGuidedFinishing(snapshot(null), 8)?.faceBubble).toBeUndefined();
+    const noFootage = { ...library, items: library.items.filter((item) => item.use !== "footage") };
+    expect(planGuidedFinishing({ ...snapshot({ enabled: true, corner: "top_left" }), references: noFootage } as never, 8)?.faceBubble)
+      .toBeUndefined();
+  });
+
+  it("crops the untouched render and shows it only during footage windows", () => {
+    const args = guidedFinishingArgs({
+      plan: { version: 1, footage: [{ handle: "shop", path: "p", sha256: "s", startSec: 3, endSec: 8 }], layers: [], faceBubble: { corner: "bottom_right" } },
+      base: { file: "b.mp4", durationSec: 8, width: 1080, height: 1920, hasAudio: true },
+      footageFiles: ["f.mp4"],
+      layerFiles: [],
+      output: "o.mp4",
+    });
+    const graph = args[args.indexOf("-filter_complex") + 1]!;
+    expect(graph).toContain("[0:v]split=2[basev][bubsrc]");
+    expect(graph).toContain("[bubsrc]crop=");
+    expect(graph).toContain("enable='between(t,3.000,8.000)'[vbub]");
+    expect(args).toContain("[vbub]");
+  });
+
+  it("places the bubble in the chosen corner", () => {
+    const filters = (corner: "bottom_right" | "top_left") => faceBubbleFilters({
+      source: "s", under: "u", output: "o", width: 1080, height: 1920, corner, windows: [{ startSec: 0, endSec: 1 }],
+    })[1]!;
+    expect(filters("bottom_right")).toMatch(/overlay=663:1168:/);
+    expect(filters("top_left")).toMatch(/overlay=49:230:/);
+  });
+});
+

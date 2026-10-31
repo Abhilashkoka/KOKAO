@@ -17121,6 +17121,10 @@ export const createGuidedStoryDraftBodyProductSelectionAssetIdsMax = 4;
 export const createGuidedStoryDraftBodyProductSelectionHeroShareMin = 0.6;
 export const createGuidedStoryDraftBodyProductSelectionHeroShareMax = 0.8;
 
+export const createGuidedStoryDraftBodyPromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const createGuidedStoryDraftBodyPromoOverlaysOneTextOverlaysMax = 3;
+
 
 
 export const CreateGuidedStoryDraftBody = zod.object({
@@ -17154,7 +17158,20 @@ export const CreateGuidedStoryDraftBody = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftBodyProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(createGuidedStoryDraftBodyProductSelectionHeroShareMin).max(createGuidedStoryDraftBodyProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(createGuidedStoryDraftBodyPromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(createGuidedStoryDraftBodyPromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 })
 
 export const createGuidedStoryDraftResponseSetupOneOneCustomToneMax = 200;
@@ -17204,6 +17221,10 @@ export const createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMa
 
 export const createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
+
+export const createGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const createGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
 
 export const createGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
@@ -17314,7 +17335,20 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(createGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(createGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -17715,6 +17749,10 @@ export const getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax =
 export const getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const getGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const getGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const getGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const getGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
@@ -17824,7 +17862,20 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(getGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(getGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -18226,6 +18277,10 @@ export const updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax = 4;
 export const updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin = 0.6;
 export const updateGuidedStoryDraftBodySetupProductSelectionHeroShareMax = 0.8;
 
+export const updateGuidedStoryDraftBodySetupPromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const updateGuidedStoryDraftBodySetupPromoOverlaysOneTextOverlaysMax = 3;
+
 export const updateGuidedStoryDraftBodyScriptRolesMax = 20;
 
 export const updateGuidedStoryDraftBodyScriptScenesItemStartMsMin = 0;
@@ -18302,7 +18357,20 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin).max(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(updateGuidedStoryDraftBodySetupPromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(updateGuidedStoryDraftBodySetupPromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).optional(),
   "script": zod.object({
   "version": zod.number(),
@@ -18452,6 +18520,10 @@ export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMa
 export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const updateGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const updateGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const updateGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const updateGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
@@ -18561,7 +18633,20 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(updateGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(updateGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -18969,6 +19054,10 @@ export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAs
 export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const generateGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const generateGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const generateGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
 export const generateGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin = 0;
@@ -19078,7 +19167,20 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(generateGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(generateGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -19496,6 +19598,10 @@ export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectio
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const refreshGuidedStoryLineTranslationResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const refreshGuidedStoryLineTranslationResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const refreshGuidedStoryLineTranslationResponseScriptOneRolesMax = 20;
 
 export const refreshGuidedStoryLineTranslationResponseScriptOneScenesItemStartMsMin = 0;
@@ -19605,7 +19711,20 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(refreshGuidedStoryLineTranslationResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(refreshGuidedStoryLineTranslationResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -20148,6 +20267,10 @@ export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAss
 export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const approveGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const approveGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const approveGuidedStoryDraftScriptResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryDraftScriptResponseScriptOneScenesItemStartMsMin = 0;
@@ -20257,7 +20380,20 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(approveGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(approveGuidedStoryDraftScriptResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -20680,6 +20816,10 @@ export const castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax 
 export const castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const castGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const castGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const castGuidedStoryDraftResponseScriptOneRolesMax = 20;
 
 export const castGuidedStoryDraftResponseScriptOneScenesItemStartMsMin = 0;
@@ -20789,7 +20929,20 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(castGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(castGuidedStoryDraftResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -21199,6 +21352,10 @@ export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetI
 export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const approveGuidedStoryCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const approveGuidedStoryCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const approveGuidedStoryCastRoleResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryCastRoleResponseScriptOneScenesItemStartMsMin = 0;
@@ -21308,7 +21465,20 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(approveGuidedStoryCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(approveGuidedStoryCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -21733,6 +21903,10 @@ export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSele
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const customizeGuidedStoryGeneratedCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneRolesMax = 20;
 
 export const customizeGuidedStoryGeneratedCastRoleResponseScriptOneScenesItemStartMsMin = 0;
@@ -21842,7 +22016,20 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -22252,6 +22439,10 @@ export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProdu
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneRolesMax = 20;
 
 export const retryGuidedStoryGeneratedCastReferenceSheetResponseScriptOneScenesItemStartMsMin = 0;
@@ -22361,7 +22552,20 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -22863,6 +23067,10 @@ export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetI
 export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const prepareGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const prepareGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const prepareGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
 export const prepareGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
@@ -22972,7 +23180,20 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(prepareGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(prepareGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -23388,6 +23609,10 @@ export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetI
 export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const approveGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const approveGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const approveGuidedStoryBackdropResponseScriptOneRolesMax = 20;
 
 export const approveGuidedStoryBackdropResponseScriptOneScenesItemStartMsMin = 0;
@@ -23497,7 +23722,20 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(approveGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(approveGuidedStoryBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -23906,6 +24144,10 @@ export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectio
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const inheritGuidedStoryDefaultBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneRolesMax = 20;
 
 export const inheritGuidedStoryDefaultBackdropResponseScriptOneScenesItemStartMsMin = 0;
@@ -24015,7 +24257,20 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -24424,6 +24679,10 @@ export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAsse
 export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const finalizeGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const finalizeGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const finalizeGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
 export const finalizeGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
@@ -24533,7 +24792,20 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(finalizeGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(finalizeGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),
@@ -24942,6 +25214,10 @@ export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetI
 export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin = 0.6;
 export const rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax = 0.8;
 
+export const rejectGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax = 60;
+
+export const rejectGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysMax = 3;
+
 export const rejectGuidedStoryReferenceResponseScriptOneRolesMax = 20;
 
 export const rejectGuidedStoryReferenceResponseScriptOneScenesItemStartMsMin = 0;
@@ -25051,7 +25327,20 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax),
   "heroShare": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
-}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n')
+}).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
+  "promoOverlays": zod.union([zod.object({
+  "version": zod.number().optional(),
+  "textOverlays": zod.array(zod.object({
+  "text": zod.string().min(1).max(rejectGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysItemTextMax),
+  "position": zod.enum(['top', 'middle', 'bottom']),
+  "timing": zod.enum(['start', 'whole', 'end']).describe('start = first 3 seconds, end = last 4 seconds, whole = entire video.'),
+  "style": zod.enum(['red', 'yellow', 'black', 'white'])
+})).max(rejectGuidedStoryReferenceResponseSetupOneOnePromoOverlaysOneTextOverlaysMax).optional(),
+  "faceBubble": zod.union([zod.object({
+  "enabled": zod.boolean(),
+  "corner": zod.enum(['bottom_right', 'bottom_left', 'top_right', 'top_left'])
+}),zod.null()]).optional()
+}).describe('On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).\n'),zod.null()]).optional().describe('Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it.\n')
 }).and(zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
   "width": zod.number(),

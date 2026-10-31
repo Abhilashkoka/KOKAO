@@ -113,6 +113,8 @@ export interface GuidedFinishingPlan {
     duck: boolean;
     replace: boolean;
   }>;
+  /** Presenter face bubble over footage scenes; absent on older plans. */
+  faceBubble?: { corner: "bottom_right" | "bottom_left" | "top_right" | "top_left" } | null;
 }
 
 type GuidedSnapshot = NonNullable<VideoJobOptions["guidedStory"]>;
@@ -194,7 +196,12 @@ export function planGuidedFinishing(
       });
     }
   }
-  return footage.length || layers.length ? { version: 1, footage, layers } : null;
+  const faceBubble = snapshot.promoOverlays?.faceBubble?.enabled && footage.length
+    ? { corner: snapshot.promoOverlays.faceBubble.corner }
+    : null;
+  return footage.length || layers.length
+    ? { version: 1, footage, layers, ...(faceBubble ? { faceBubble } : {}) }
+    : null;
 }
 
 async function probe(file: string): Promise<{ durationSec: number; width: number; height: number; hasAudio: boolean }> {
@@ -218,6 +225,42 @@ async function probe(file: string): Promise<{ durationSec: number; width: number
 
 const t = (value: number) => value.toFixed(3);
 
+/**
+ * Circular presenter cam in a corner, shown only during footage scenes.
+ *
+ * The face is cropped from the render underneath the footage: with the face
+ * bubble on, the script has the presenter speak those lines on camera in a
+ * close-up, so the crop is lip-synced to the voice. A thin white ring keeps it
+ * readable over busy screen recordings. Exported for tests.
+ */
+export function faceBubbleFilters(params: {
+  source: string;
+  under: string;
+  output: string;
+  width: number;
+  height: number;
+  corner: NonNullable<GuidedFinishingPlan["faceBubble"]>["corner"];
+  windows: Array<{ startSec: number; endSec: number }>;
+}): string[] {
+  const shortEdge = Math.min(params.width, params.height);
+  const size = Math.max(64, Math.round((shortEdge * 0.34) / 2) * 2);
+  const margin = Math.round(shortEdge * 0.045);
+  const right = params.corner.endsWith("right");
+  const top = params.corner.startsWith("top");
+  const x = right ? params.width - size - margin : margin;
+  // Clear of the platform's top bar and of the caption/buttons at the bottom.
+  const y = top ? Math.round(params.height * 0.12) : Math.round(params.height * 0.8) - size;
+  const ring = Math.max(3, Math.round(size * 0.025));
+  const inside = `lte(hypot(X-W/2,Y-H/2),W/2)`;
+  const onRing = `gt(hypot(X-W/2,Y-H/2),W/2-${ring})`;
+  const enable = params.windows.map((w) => `between(t,${t(w.startSec)},${t(w.endSec)})`).join("+");
+  return [
+    `[${params.source}]crop=w='min(iw,ih)*0.62':h='min(iw,ih)*0.62':x='(iw-ow)/2':y='(ih-oh)*0.3',scale=${size}:${size},format=yuva444p,` +
+      `geq=lum='if(${onRing},235,lum(X,Y))':cb='if(${onRing},128,cb(X,Y))':cr='if(${onRing},128,cr(X,Y))':a='if(${inside},255,0)'[bub]`,
+    `[${params.under}][bub]overlay=${x}:${y}:enable='${enable}'[${params.output}]`,
+  ];
+}
+
 /** The ffmpeg arguments for a plan. Exported for tests. */
 export function guidedFinishingArgs(params: {
   plan: GuidedFinishingPlan;
@@ -234,6 +277,13 @@ export function guidedFinishingArgs(params: {
   const filters: string[] = [];
   let videoLabel = "0:v";
   const footage = plan.footage.filter((item) => item.startSec < D);
+  const bubble = plan.faceBubble && footage.length ? plan.faceBubble : null;
+  if (bubble) {
+    // Keep an untouched copy of the render: during a footage scene it holds
+    // the presenter speaking on camera, which becomes the bubble.
+    filters.push("[0:v]split=2[basev][bubsrc]");
+    videoLabel = "basev";
+  }
   footage.forEach((item, index) => {
     const input = 1 + plan.footage.indexOf(item);
     const end = Math.min(item.endSec, D);
@@ -244,6 +294,18 @@ export function guidedFinishingArgs(params: {
     );
     videoLabel = `v${index}`;
   });
+  if (bubble) {
+    filters.push(...faceBubbleFilters({
+      source: "bubsrc",
+      under: videoLabel,
+      output: "vbub",
+      width: base.width,
+      height: base.height,
+      corner: bubble.corner,
+      windows: footage.map((item) => ({ startSec: item.startSec, endSec: Math.min(item.endSec, D) })),
+    }));
+    videoLabel = "vbub";
+  }
   const replaceWindows = plan.layers
     .filter((layer) => layer.replace && layer.startSec < D)
     .map((layer) => `between(t,${t(layer.startSec)},${t(Math.min(layer.endSec ?? D, D))})`);

@@ -1,4 +1,5 @@
 import { isFreeVideoTenant, isStockOnlyVideo, FreeVideoPolicyError } from "../freeVideoPolicy";
+import { applyPromoTextOverlays } from "./promoOverlays";
 import {
   db,
   isPromptVariantKey,
@@ -7663,8 +7664,16 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       expectedDurationSec: result.durationSec,
       finalNarrationEndSec: finalCueEnd,
     });
+    let storyBuffer = result.buffer;
+    const repairPromoText = options.guidedStory?.promoOverlays?.textOverlays ?? [];
+    if (repairPromoText.length) {
+      storyBuffer = await applyPromoTextOverlays(storyBuffer, repairPromoText, {
+        width: options.guidedStory!.platform.width,
+        height: options.guidedStory!.platform.height,
+      });
+    }
     let finalBuffer = await appendFrozenBrandOutro(
-      result.buffer, frozenBrandOutro(latestOptions), claimed.tenantId, false,
+      storyBuffer, frozenBrandOutro(latestOptions), claimed.tenantId, false,
     );
     if (frozenBrandOutro(latestOptions)?.enabled) {
       durationSec = (await verifyRenderedVideo(finalBuffer, {
@@ -8988,6 +8997,19 @@ async function executeVideoJob(
         ).durationSec;
         guidedUploadsMixed = true;
       }
+    }
+
+    // Shop-promo on-screen text (hook, offer, shop name) is local finishing
+    // on the story itself: after uploads are mixed, before any branded outro,
+    // so the outro stays clean. Fail-soft inside — never fails a paid render.
+    const promoText = job.options?.guidedStory?.promoOverlays?.textOverlays ?? [];
+    if (!savedFinal && promoText.length) {
+      onStage("Adding your on-screen text");
+      const platform = job.options!.guidedStory!.platform;
+      buffer = await applyPromoTextOverlays(buffer, promoText, {
+        width: platform.width,
+        height: platform.height,
+      });
     }
 
     // Speech QA and billable provider durations refer to the original render.

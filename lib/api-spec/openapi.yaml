@@ -21062,6 +21062,47 @@ components:
         brandKitId: { type: ["integer", "null"] }
         productSelection:
           $ref: "#/components/schemas/GuidedStoryProductSelectionInput"
+        promoOverlays:
+          description: >
+            Optional shop-promo finishing. Omit on an update to keep the saved
+            value; send null to clear it.
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryPromoOverlaysInput"
+            - type: "null"
+    GuidedStoryTextOverlay:
+      type: object
+      required: [text, position, timing, style]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 60 }
+        position: { type: string, enum: [top, middle, bottom] }
+        timing:
+          type: string
+          enum: [start, whole, end]
+          description: start = first 3 seconds, end = last 4 seconds, whole = entire video.
+        style: { type: string, enum: [red, yellow, black, white] }
+    GuidedStoryFaceBubble:
+      type: object
+      required: [enabled, corner]
+      properties:
+        enabled: { type: boolean }
+        corner: { type: string, enum: [bottom_right, bottom_left, top_right, top_left] }
+    GuidedStoryPromoOverlaysInput:
+      type: object
+      description: >
+        On-screen text burned into the finished video, and a round presenter
+        face bubble over uploaded footage scenes (the presenter then speaks
+        those lines on camera).
+      properties:
+        version: { type: integer, const: 1 }
+        textOverlays:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/GuidedStoryTextOverlay"
+        faceBubble:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryFaceBubble"
+            - type: "null"
     GuidedStoryRequirementsInput:
       type: object
       properties:

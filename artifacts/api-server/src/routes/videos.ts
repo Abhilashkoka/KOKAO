@@ -1,4 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import {
+  faceBubbleEnabled,
+  normalizePromoOverlays,
+  PromoOverlaysInputError,
+} from "../lib/videoGen/promoOverlays";
 import { getReelCostSettings } from "../lib/reelCostSettings";
 import { enforceFreeVideoRoutes, isStockOnlyVideo, FREE_VIDEO_MESSAGE, FREE_VIDEO_BILLING_MESSAGE } from "../lib/freeVideoPolicy";
 import { createHash, randomUUID } from "node:crypto";
@@ -4955,7 +4960,13 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
       input: guidedSetupExtrasInput(parsed.data),
       previous: null,
     });
+    const promoOverlays = normalizePromoOverlays(parsed.data.promoOverlays, null);
+    if (promoOverlays) setup.promoOverlays = promoOverlays;
   } catch (error) {
+    if (error instanceof PromoOverlaysInputError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     if (error instanceof GuidedProductSelectionError || error instanceof GuidedSetupExtrasError) {
       res.status(400).json({ error: error.message });
       return;
@@ -5121,7 +5132,17 @@ router.patch(
           input: guidedSetupExtrasInput(parsed.data.setup),
           previous: row.state.setup,
         });
+        // Omitted on script-only edits: keep what was saved.
+        const promoOverlays = normalizePromoOverlays(
+          parsed.data.setup.promoOverlays,
+          row.state.setup?.promoOverlays ?? null,
+        );
+        if (promoOverlays) setup.promoOverlays = promoOverlays;
       } catch (error) {
+        if (error instanceof PromoOverlaysInputError) {
+          res.status(400).json({ error: error.message });
+          return;
+        }
         if (error instanceof GuidedProductSelectionError || error instanceof GuidedSetupExtrasError) {
           res.status(400).json({ error: error.message });
           return;
@@ -5786,6 +5807,7 @@ router.post(
             customTone: setup.customTone ?? null,
             references: setup.references ?? null,
             requirements: setup.requirements ?? null,
+            faceBubble: faceBubbleEnabled(setup.promoOverlays),
             meterContext,
           });
         },
@@ -12634,6 +12656,9 @@ async function generateVideoHandler(
               : {}),
             ...(guidedDraft.state.audioChoices?.items.length
               ? { audioChoices: guidedDraft.state.audioChoices }
+              : {}),
+            ...(guidedDraft.state.setup.promoOverlays
+              ? { promoOverlays: guidedDraft.state.setup.promoOverlays }
               : {}),
           }
         : undefined,

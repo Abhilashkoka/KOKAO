@@ -6523,6 +6523,74 @@ export interface GuidedStoryProductSelectionInput {
   heroShare?: number | null;
 }
 
+export type GuidedStoryTextOverlayPosition = typeof GuidedStoryTextOverlayPosition[keyof typeof GuidedStoryTextOverlayPosition];
+
+
+export const GuidedStoryTextOverlayPosition = {
+  top: 'top',
+  middle: 'middle',
+  bottom: 'bottom',
+} as const;
+
+/**
+ * start = first 3 seconds, end = last 4 seconds, whole = entire video.
+ */
+export type GuidedStoryTextOverlayTiming = typeof GuidedStoryTextOverlayTiming[keyof typeof GuidedStoryTextOverlayTiming];
+
+
+export const GuidedStoryTextOverlayTiming = {
+  start: 'start',
+  whole: 'whole',
+  end: 'end',
+} as const;
+
+export type GuidedStoryTextOverlayStyle = typeof GuidedStoryTextOverlayStyle[keyof typeof GuidedStoryTextOverlayStyle];
+
+
+export const GuidedStoryTextOverlayStyle = {
+  red: 'red',
+  yellow: 'yellow',
+  black: 'black',
+  white: 'white',
+} as const;
+
+export interface GuidedStoryTextOverlay {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  text: string;
+  position: GuidedStoryTextOverlayPosition;
+  /** start = first 3 seconds, end = last 4 seconds, whole = entire video. */
+  timing: GuidedStoryTextOverlayTiming;
+  style: GuidedStoryTextOverlayStyle;
+}
+
+export type GuidedStoryFaceBubbleCorner = typeof GuidedStoryFaceBubbleCorner[keyof typeof GuidedStoryFaceBubbleCorner];
+
+
+export const GuidedStoryFaceBubbleCorner = {
+  bottom_right: 'bottom_right',
+  bottom_left: 'bottom_left',
+  top_right: 'top_right',
+  top_left: 'top_left',
+} as const;
+
+export interface GuidedStoryFaceBubble {
+  enabled: boolean;
+  corner: GuidedStoryFaceBubbleCorner;
+}
+
+/**
+ * On-screen text burned into the finished video, and a round presenter face bubble over uploaded footage scenes (the presenter then speaks those lines on camera).
+ */
+export interface GuidedStoryPromoOverlaysInput {
+  version?: 1;
+  /** @maxItems 3 */
+  textOverlays?: GuidedStoryTextOverlay[];
+  faceBubble?: GuidedStoryFaceBubble | null;
+}
+
 export interface GuidedStorySetupInput {
   genre: GuidedStorySetupInputGenre;
   /**
@@ -6564,6 +6632,8 @@ export interface GuidedStorySetupInput {
   /** @nullable */
   brandKitId?: number | null;
   productSelection?: GuidedStoryProductSelectionInput;
+  /** Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it. */
+  promoOverlays?: GuidedStoryPromoOverlaysInput | null;
 }
 
 export type GuidedStoryRequirements = GuidedStoryRequirementsInput & {

@@ -1358,6 +1358,8 @@ export interface VideoJobOptions {
     references?: import("./guidedStories").GuidedStoryReferenceLibrary;
     /** Frozen music / voiceover / SFX placement, mixed locally after render. */
     audioChoices?: import("./guidedStories").GuidedStoryAudioChoices;
+    /** Frozen at enqueue: on-screen text and presenter face bubble. Local finishing only. */
+    promoOverlays?: import("./guidedStories").GuidedStoryPromoOverlays;
   };
   /**
    * Privacy-safe post-render speech QA evidence. Transcript text is

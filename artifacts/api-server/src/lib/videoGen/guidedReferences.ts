@@ -762,8 +762,17 @@ const USE_RULES: Partial<Record<GuidedStoryReferenceUse, string>> = {
  * Brief for the screenplay planner. Upload text, notes and transcripts are
  * data; only the rules here are instructions.
  */
+/**
+ * Footage rule when the shop-promo face bubble is on: the presenter speaks
+ * those lines on camera in a centred close-up, because that render is what the
+ * round bubble crops while the uploaded clip covers the rest of the frame.
+ */
+export const FACE_BUBBLE_FOOTAGE_RULE =
+  "Footage uploads: the uploaded clip itself will cover the picture of the scene you tag, and the lead on-camera role appears in a small round face bubble in the corner. Tag one scene per clip. In that scene the lead role speaks the lines on camera as dialogue (not narration), in a tight head-and-shoulders close-up facing the camera, face centred, against a plain uncluttered background, and the scene stays about as long as the clip. Say so in visualDirection.";
+
 export function guidedReferenceScriptBrief(
   library: GuidedStoryReferenceLibrary | null | undefined,
+  options?: { faceBubble?: boolean },
 ): string | null {
   if (!library?.items.length) return null;
   const uses = [...new Set(library.items.map((item) => item.use))];
@@ -773,7 +782,9 @@ export function guidedReferenceScriptBrief(
     library.items.map(referenceLine).join("\n"),
     ...briefs.map((item) => `Brief @${item.handle} text:\n"""\n${item.documentText!.slice(0, 3000)}\n"""`),
     "Rules:",
-    ...uses.map((use) => USE_RULES[use]).filter((rule): rule is string => Boolean(rule)),
+    ...uses
+      .map((use) => (use === "footage" && options?.faceBubble ? FACE_BUBBLE_FOOTAGE_RULE : USE_RULES[use]))
+      .filter((rule): rule is string => Boolean(rule)),
     `Tag every scene that uses a product, backdrop, prop, style, opening/closing shot, other image, motion or footage upload in referenceIds (at most ${MAX_GUIDED_REFERENCES_PER_SCENE} per scene); use an empty list elsewhere. Never put character, outfit, logo, brief or audio ids in referenceIds.`,
   ].join("\n");
 }

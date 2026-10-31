@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GuidedStoryProductSelectionInput } from './guidedStoryProductSelectionInput';
+import type { GuidedStoryPromoOverlaysInput } from './guidedStoryPromoOverlaysInput';
 import type { GuidedStoryRequirementsInput } from './guidedStoryRequirementsInput';
 import type { GuidedStorySetupInputCategory } from './guidedStorySetupInputCategory';
 import type { GuidedStorySetupInputGenre } from './guidedStorySetupInputGenre';
@@ -53,4 +54,6 @@ export interface GuidedStorySetupInput {
   /** @nullable */
   brandKitId?: number | null;
   productSelection?: GuidedStoryProductSelectionInput;
+  /** Optional shop-promo finishing. Omit on an update to keep the saved value; send null to clear it. */
+  promoOverlays?: GuidedStoryPromoOverlaysInput | null;
 }

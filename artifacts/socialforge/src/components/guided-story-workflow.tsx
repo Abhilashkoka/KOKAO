@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  EMPTY_PROMO_OVERLAYS,
+  GuidedPromoOverlaysEditor,
+  promoOverlaysFromDraft,
+  promoOverlaysInput,
+  promoOverlaysProblem,
+  type PromoOverlaysValue,
+} from "./guided-promo-overlays";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getGetGuidedStoryDraftQueryKey,
@@ -332,6 +340,7 @@ export function GuidedStoryWorkflow({
   const [customTone, setCustomTone] = useState("");
   const [category, setCategory] = useState<GuidedStoryCategory | null>(null);
   const [uploads, setUploads] = useState<GuidedUploadDraft[]>([]);
+  const [promoOverlays, setPromoOverlays] = useState<PromoOverlaysValue>(EMPTY_PROMO_OVERLAYS);
   const [requirements, setRequirements] = useState<GuidedRequirementsValue>(EMPTY_REQUIREMENTS);
   const [editing, setEditing] = useState(false);
   const [scriptEditorOpen, setScriptEditorOpen] = useState(false);
@@ -617,6 +626,7 @@ export function GuidedStoryWorkflow({
     setCategory(draft.setup.category ?? null);
     setUploads(uploadDraftsFromDraft(draft));
     setRequirements(requirementsFromDraft(draft));
+    setPromoOverlays(promoOverlaysFromDraft(draft));
   }, [draft?.id, draft?.revision]);
   useEffect(() => {
     if (!draft?.script) return;
@@ -875,7 +885,7 @@ export function GuidedStoryWorkflow({
         ? "Answer whether this video is medical or CA-related."
         : genre === "custom" && customTone.trim().length < 3
           ? "Describe the custom tone in at least 3 characters."
-          : uploadsProblem(uploads);
+          : uploadsProblem(uploads) ?? promoOverlaysProblem(promoOverlays);
     if (extrasProblem) {
       setSetupSaveError(extrasProblem);
       return;
@@ -898,6 +908,7 @@ export function GuidedStoryWorkflow({
       category: category ?? undefined,
       requirements: requirementsInput(requirements, category),
       uploads: uploadInputsFromDrafts(uploads),
+      promoOverlays: promoOverlaysInput(promoOverlays),
     };
     if (draft) {
       updateDraft.mutate(
@@ -1243,6 +1254,11 @@ export function GuidedStoryWorkflow({
             onChange={setRequirements}
             category={category}
             handles={uploads.filter((row) => row.status === "ready").map((row) => normalizeHandle(row.handle)).filter((handle) => handle.length >= 2)}
+          />
+          <GuidedPromoOverlaysEditor
+            value={promoOverlays}
+            onChange={setPromoOverlays}
+            hasFootage={uploads.some((row) => row.use === "footage")}
           />
           {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">No Brand Kit is available. You can still create the story and select voices separately.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
