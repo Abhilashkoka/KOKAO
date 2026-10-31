@@ -240,6 +240,18 @@ export interface GuidedStoryProductChoices {
   items: GuidedStoryProductReference[];
   /** "hero" only: target share of runtime with the product on screen (0.6–0.8). */
   heroShare?: number;
+  /** "hero" only: category preset (shot grammar, look, who wears it). Absent = general. */
+  adSkill?: GuidedStoryAdSkill;
+}
+
+export type GuidedStoryAdSkillLook = "bridal" | "festive" | "everyday" | "minimal";
+/** cast = story characters wear it; body_only = faceless body crops; none = product only. */
+export type GuidedStoryAdSkillModel = "cast" | "body_only" | "none";
+
+export interface GuidedStoryAdSkill {
+  id: "jewellery";
+  look: GuidedStoryAdSkillLook;
+  model: GuidedStoryAdSkillModel;
 }
 
 export interface GuidedStoryScript {

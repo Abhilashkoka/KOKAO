@@ -21412,7 +21412,30 @@ components:
           type: ["number", "null"]
           minimum: 0.6
           maximum: 0.8
-          description: Product hero only; share of the runtime with the product on screen (default 0.7).
+          description: Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill's default).
+        adSkill:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryAdSkillInput"
+            - type: "null"
+          description: Product hero only; category preset such as jewellery. Null or omitted = general product ad.
+    GuidedStoryAdSkillInput:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id: { type: string, enum: [jewellery] }
+        look: { type: string, enum: [bridal, festive, everyday, minimal] }
+        model:
+          type: string
+          enum: [cast, body_only, none]
+          description: cast = story characters wear it; body_only = faceless neck/ear/hand/wrist crops; none = product only, no people.
+    GuidedStoryAdSkill:
+      type: object
+      required: [id, look, model]
+      properties:
+        id: { type: string, enum: [jewellery] }
+        look: { type: string, enum: [bridal, festive, everyday, minimal] }
+        model: { type: string, enum: [cast, body_only, none] }
     GuidedStoryProductReference:
       type: object
       required: [id, assetId, name, kind, description, aiDescription, displayMode, imagePath, imageSha256, mimeType]
@@ -21444,6 +21467,8 @@ components:
       properties:
         version: { type: integer, const: 1 }
         heroShare: { type: number }
+        adSkill:
+          $ref: "#/components/schemas/GuidedStoryAdSkill"
         promotion: { type: string, enum: [hero, featured, subtle] }
         items:
           type: array

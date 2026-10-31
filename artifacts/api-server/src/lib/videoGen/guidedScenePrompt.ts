@@ -1,4 +1,5 @@
 import type {
+  GuidedStoryAdSkill,
   GuidedStoryShot,
   GuidedStoryCastSnapshot,
   GuidedStoryScript,
@@ -6,6 +7,7 @@ import type {
 } from "@workspace/db";
 import { VideoGenProviderError } from "./types";
 import { productHeroShotClause } from "./productHero";
+import { adSkillFidelityLine } from "./productSkills";
 
 type PlatformFraming = { aspectRatio: string; safeArea: string };
 type ScriptScene = GuidedStoryScript["scenes"][number];
@@ -42,7 +44,7 @@ export interface GuidedSceneVisualInput {
    */
   productReferenceLabels?: readonly string[];
   /** Product-hero story: the product is the subject; shot plan for this scene. */
-  productHero?: { shot: GuidedStoryShot | null };
+  productHero?: { shot: GuidedStoryShot | null; skill?: GuidedStoryAdSkill | null };
   /** Scene-level user uploads (props, style, opening/closing shot, motion). */
   references?: ReadonlyArray<{
     handle: string;
@@ -272,7 +274,7 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
   const blocks = [
     // Product hero: the framing comes first, so the product leads the shot.
     heroProducts.length
-      ? productHeroShotClause({ shot: input.productHero!.shot, productNames: heroProducts, castCount: input.sceneCast.length })
+      ? productHeroShotClause({ shot: input.productHero!.shot, productNames: heroProducts, castCount: input.sceneCast.length, skill: input.productHero!.skill ?? null })
       : "",
     stripStoryboardDump(input.scriptScene.visualDirection),
     input.sceneCast.map((member, i) => roleClause(member, labels.slice(i * 2, i * 2 + 2))).join(" "),
@@ -288,7 +290,8 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
       ? "Every face, hairstyle, build and garment stays identical to the references for the entire shot."
       : "",
     heroProducts.length
-      ? "The product's shape, colours, packaging and label stay identical to its reference photo for the entire shot."
+      ? adSkillFidelityLine(input.productHero!.skill) ??
+        "The product's shape, colours, packaging and label stay identical to its reference photo for the entire shot."
       : "",
     `Compose for ${input.platform.aspectRatio}. ${input.platform.safeArea}`,
   ];

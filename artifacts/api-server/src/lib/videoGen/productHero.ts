@@ -1,5 +1,6 @@
 import type {
   BrandProductAngleView,
+  GuidedStoryAdSkill,
   GuidedStoryCameraMove,
   GuidedStoryLighting,
   GuidedStoryProductChoices,
@@ -8,6 +9,14 @@ import type {
   GuidedStoryShot,
   GuidedStoryShotType,
 } from "@workspace/db";
+import {
+  activeAdSkill,
+  adSkillFacelessProduct,
+  adSkillForbidsCast,
+  adSkillMacroView,
+  adSkillScriptRules,
+  adSkillShotClause,
+} from "./productSkills";
 
 /**
  * Product-hero Guided Stories.
@@ -194,9 +203,22 @@ export function sanitizeShots(
   products: GuidedStoryProductChoices | null | undefined,
 ): GuidedStoryScript {
   const hero = isProductHero(products);
+  const skill = hero ? activeAdSkill(products) : null;
   const byId = new Map((products?.items ?? []).map((item) => [item.id, item]));
   let changed = false;
-  const scenes = script.scenes.map((scene) => {
+  const scenes = script.scenes.map((original) => {
+    let scene = original;
+    // Skills without a cast: no characters on screen, dialogue becomes narration.
+    const castless =
+      adSkillForbidsCast(skill) || (adSkillFacelessProduct(skill) && (scene.productIds?.length ?? 0) > 0);
+    if (castless && (scene.roleIds.length || scene.lines.some((line) => line.kind === "dialogue" || line.ownerRoleId))) {
+      changed = true;
+      scene = {
+        ...scene,
+        roleIds: [],
+        lines: scene.lines.map((line) => ({ ...line, kind: "narration" as const, ownerRoleId: null })),
+      };
+    }
     if (!scene.shot) return scene;
     if (!hero) {
       changed = true;
@@ -232,6 +254,7 @@ export function productHeroScriptRules(products: GuidedStoryProductChoices): str
     `Give every scene a shot object: {"type": one of ${SHOT_TYPES.join("|")}, "camera": one of ${CAMERA_MOVES.join("|")}, "lighting": one of ${LIGHTING.join("|")}, "angle": which product photo it shows, one of ${ANGLE_VIEWS.join("|")} or null}.`,
     `Only choose angles that have a photo (${views}). Describe the shot, camera and lighting in that scene's visualDirection too.`,
     "End on a hero shot of the product with the call to action.",
+    ...adSkillScriptRules(products),
   ];
 }
 
@@ -239,8 +262,10 @@ export function productHeroScriptRules(products: GuidedStoryProductChoices): str
 export function chooseProductImage(
   item: Pick<GuidedStoryProductReference, "imagePath" | "imageSha256" | "angles">,
   shot: GuidedStoryShot | null | undefined,
+  skill?: GuidedStoryAdSkill | null,
 ): { imagePath: string; imageSha256: string; view: BrandProductAngleView } {
-  const wanted = shot?.angle ?? (shot?.type === "macro_closeup" || shot?.type === "texture" ? "label" : null);
+  const macroView = adSkillMacroView(skill);
+  const wanted = shot?.angle ?? (shot?.type === "macro_closeup" || shot?.type === "texture" ? macroView : null);
   const match = wanted && wanted !== "front" ? item.angles?.find((angle) => angle.view === wanted) : undefined;
   return match
     ? { imagePath: match.imagePath, imageSha256: match.imageSha256, view: match.view }
@@ -255,17 +280,23 @@ export function productHeroShotClause(params: {
   shot: GuidedStoryShot | null | undefined;
   productNames: string[];
   castCount: number;
+  skill?: GuidedStoryAdSkill | null;
 }): string {
   if (!params.productNames.length) return "";
   const name = params.productNames.length === 1 ? `"${params.productNames[0]}"` : params.productNames.map((n) => `"${n}"`).join(" and ");
   const shot = params.shot;
   const parts = [
-    `The product ${name} is the subject of this shot: largest and sharpest thing in frame, shallow depth of field, background softly blurred, label legible.`,
+    params.skill
+      ? `The product ${name} is the subject of this shot: largest and sharpest thing in frame, shallow depth of field, background softly blurred.`
+      : `The product ${name} is the subject of this shot: largest and sharpest thing in frame, shallow depth of field, background softly blurred, label legible.`,
     shot ? SHOT_TEXT[shot.type] : SHOT_TEXT.character_with_product,
     shot ? CAMERA_TEXT[shot.camera] : "",
     shot ? LIGHTING_TEXT[shot.lighting] : LIGHTING_TEXT.studio_key,
     shot?.angle && shot.angle !== "front" ? `Show the product's ${ANGLE_TEXT[shot.angle]}.` : "",
+    adSkillShotClause(params.skill, shot),
   ];
+  // The skill's own people rule (body crops / nobody) replaces the generic one.
+  if (params.skill && adSkillFacelessProduct(params.skill)) return parts.filter(Boolean).join(" ");
   if (params.castCount === 0 || (shot && PRODUCT_ONLY_SHOTS.includes(shot.type))) {
     parts.push(params.castCount === 0 ? "No people in frame; hands may appear only if the action needs them." : "Faces stay out of focus or out of frame.");
   }

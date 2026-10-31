@@ -6504,6 +6504,42 @@ export const GuidedStoryProductSelectionInputPromotion = {
   subtle: 'subtle',
 } as const;
 
+export type GuidedStoryAdSkillInputId = typeof GuidedStoryAdSkillInputId[keyof typeof GuidedStoryAdSkillInputId];
+
+
+export const GuidedStoryAdSkillInputId = {
+  jewellery: 'jewellery',
+} as const;
+
+export type GuidedStoryAdSkillInputLook = typeof GuidedStoryAdSkillInputLook[keyof typeof GuidedStoryAdSkillInputLook];
+
+
+export const GuidedStoryAdSkillInputLook = {
+  bridal: 'bridal',
+  festive: 'festive',
+  everyday: 'everyday',
+  minimal: 'minimal',
+} as const;
+
+/**
+ * cast = story characters wear it; body_only = faceless neck/ear/hand/wrist crops; none = product only, no people.
+ */
+export type GuidedStoryAdSkillInputModel = typeof GuidedStoryAdSkillInputModel[keyof typeof GuidedStoryAdSkillInputModel];
+
+
+export const GuidedStoryAdSkillInputModel = {
+  cast: 'cast',
+  body_only: 'body_only',
+  none: 'none',
+} as const;
+
+export interface GuidedStoryAdSkillInput {
+  id: GuidedStoryAdSkillInputId;
+  look?: GuidedStoryAdSkillInputLook;
+  /** cast = story characters wear it; body_only = faceless neck/ear/hand/wrist crops; none = product only, no people. */
+  model?: GuidedStoryAdSkillInputModel;
+}
+
 /**
  * Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.
  */
@@ -6515,12 +6551,14 @@ export interface GuidedStoryProductSelectionInput {
      */
   assetIds: number[];
   /**
-     * Product hero only; share of the runtime with the product on screen (default 0.7).
+     * Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill's default).
      * @minimum 0.6
      * @maximum 0.8
      * @nullable
      */
   heroShare?: number | null;
+  /** Product hero only; category preset such as jewellery. Null or omitted = general product ad. */
+  adSkill?: GuidedStoryAdSkillInput | null;
 }
 
 export type GuidedStoryTextOverlayPosition = typeof GuidedStoryTextOverlayPosition[keyof typeof GuidedStoryTextOverlayPosition];
@@ -6952,6 +6990,38 @@ export interface GuidedStoryRequirementCheck {
   met: boolean;
 }
 
+export type GuidedStoryAdSkillId = typeof GuidedStoryAdSkillId[keyof typeof GuidedStoryAdSkillId];
+
+
+export const GuidedStoryAdSkillId = {
+  jewellery: 'jewellery',
+} as const;
+
+export type GuidedStoryAdSkillLook = typeof GuidedStoryAdSkillLook[keyof typeof GuidedStoryAdSkillLook];
+
+
+export const GuidedStoryAdSkillLook = {
+  bridal: 'bridal',
+  festive: 'festive',
+  everyday: 'everyday',
+  minimal: 'minimal',
+} as const;
+
+export type GuidedStoryAdSkillModel = typeof GuidedStoryAdSkillModel[keyof typeof GuidedStoryAdSkillModel];
+
+
+export const GuidedStoryAdSkillModel = {
+  cast: 'cast',
+  body_only: 'body_only',
+  none: 'none',
+} as const;
+
+export interface GuidedStoryAdSkill {
+  id: GuidedStoryAdSkillId;
+  look: GuidedStoryAdSkillLook;
+  model: GuidedStoryAdSkillModel;
+}
+
 export type GuidedStoryProductReferenceKind = typeof GuidedStoryProductReferenceKind[keyof typeof GuidedStoryProductReferenceKind];
 
 
@@ -7002,6 +7072,7 @@ export const GuidedStoryProductChoicesPromotion = {
 export interface GuidedStoryProductChoices {
   version: 1;
   heroShare?: number;
+  adSkill?: GuidedStoryAdSkill;
   promotion: GuidedStoryProductChoicesPromotion;
   items: GuidedStoryProductReference[];
 }

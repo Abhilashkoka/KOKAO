@@ -11,6 +11,7 @@ import {
 } from "../brandKit/products";
 import { guidedProductId } from "./guidedStory";
 import { clampHeroShare } from "./productHero";
+import { adSkillDefaultHeroShare, normalizeAdSkill, type AdSkillSelectionInput } from "./productSkills";
 import { readReferenceBytes, referenceDigest } from "./topicVideo/referenceImages";
 
 /** A story promotes a handful of things well; more dilutes every scene. */
@@ -23,6 +24,8 @@ export type GuidedProductSelectionInput = {
   assetIds: number[];
   /** "hero" only: share of runtime with the product on screen, 0.6–0.8. */
   heroShare?: number | null;
+  /** "hero" only: category preset such as jewellery. Null or absent = general. */
+  adSkill?: AdSkillSelectionInput | null;
 };
 
 type Setup = NonNullable<GuidedStoryDraftState["setup"]>;
@@ -94,11 +97,16 @@ export async function freezeGuidedProductSelection(params: {
       ...(angles.length ? { angles } : {}),
     });
   }
+  const hero = params.selection.promotion === "hero";
+  const adSkill = hero ? normalizeAdSkill(params.selection.adSkill) : null;
+  // A skill sets its own default screen time when the user picked none.
+  const heroShare = params.selection.heroShare ?? adSkillDefaultHeroShare(adSkill);
   return {
     version: 1,
     promotion: params.selection.promotion,
     items,
-    ...(params.selection.promotion === "hero" ? { heroShare: clampHeroShare(params.selection.heroShare) } : {}),
+    ...(hero ? { heroShare: clampHeroShare(heroShare) } : {}),
+    ...(adSkill ? { adSkill } : {}),
   };
 }
 

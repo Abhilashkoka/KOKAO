@@ -38,6 +38,7 @@ import {
   sanitizeShots,
   withProductHeroWarnings,
 } from "./productHero";
+import { activeAdSkill } from "./productSkills";
 import {
   guidedReferenceScriptBrief,
   guidedRequirementsScriptBrief,
@@ -1396,7 +1397,7 @@ export function guidedStoryStoryboard(
           ? {
               products: sceneProducts,
               ...(productReferenceLabels ? { productReferenceLabels } : {}),
-              ...(productHero ? { productHero: { shot: scriptScene.shot ?? null } } : {}),
+              ...(productHero ? { productHero: { shot: scriptScene.shot ?? null, skill: activeAdSkill(snapshot.products) } } : {}),
             }
           : {}),
         ...(sceneReferences.length
@@ -1547,7 +1548,7 @@ export function guidedSceneProducts(
       // Product-hero shots use the photo of the angle they show.
       ...(shot && isProductHero(products)
         ? (({ imagePath, imageSha256, view }) =>
-            view === "front" ? { imagePath, imageSha256 } : { imagePath, imageSha256, view })(chooseProductImage(item, shot))
+            view === "front" ? { imagePath, imageSha256 } : { imagePath, imageSha256, view })(chooseProductImage(item, shot, activeAdSkill(products)))
         : { imagePath: item.imagePath, imageSha256: item.imageSha256 }),
     }));
 }

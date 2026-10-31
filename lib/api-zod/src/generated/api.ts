@@ -17157,7 +17157,12 @@ export const CreateGuidedStoryDraftBody = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftBodyProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(createGuidedStoryDraftBodyProductSelectionHeroShareMin).max(createGuidedStoryDraftBodyProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(createGuidedStoryDraftBodyProductSelectionHeroShareMin).max(createGuidedStoryDraftBodyProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -17334,7 +17339,12 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(createGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -17357,6 +17367,11 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -17861,7 +17876,12 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(getGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -17884,6 +17904,11 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -18356,7 +18381,12 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftBodySetupProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin).max(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMin).max(updateGuidedStoryDraftBodySetupProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -18632,7 +18662,12 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(updateGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -18655,6 +18690,11 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -19166,7 +19206,12 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -19189,6 +19234,11 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -19710,7 +19760,12 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMin).max(refreshGuidedStoryLineTranslationResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -19733,6 +19788,11 @@ export const RefreshGuidedStoryLineTranslationResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -20379,7 +20439,12 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -20402,6 +20467,11 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -20928,7 +20998,12 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMin).max(castGuidedStoryDraftResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -20951,6 +21026,11 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -21464,7 +21544,12 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -21487,6 +21572,11 @@ export const ApproveGuidedStoryCastRoleResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -22015,7 +22105,12 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMin).max(customizeGuidedStoryGeneratedCastRoleResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -22038,6 +22133,11 @@ export const CustomizeGuidedStoryGeneratedCastRoleResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -22551,7 +22651,12 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMin).max(retryGuidedStoryGeneratedCastReferenceSheetResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -22574,6 +22679,11 @@ export const RetryGuidedStoryGeneratedCastReferenceSheetResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -23179,7 +23289,12 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(prepareGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -23202,6 +23317,11 @@ export const PrepareGuidedStoryBackdropResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -23721,7 +23841,12 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(approveGuidedStoryBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -23744,6 +23869,11 @@ export const ApproveGuidedStoryBackdropResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -24256,7 +24386,12 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMin).max(inheritGuidedStoryDefaultBackdropResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -24279,6 +24414,11 @@ export const InheritGuidedStoryDefaultBackdropResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -24791,7 +24931,12 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -24814,6 +24959,11 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),
@@ -25326,7 +25476,12 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "productSelection": zod.object({
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "assetIds": zod.array(zod.number().min(1)).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionAssetIdsMax),
-  "heroShare": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7).')
+  "heroShare": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMin).max(rejectGuidedStoryReferenceResponseSetupOneOneProductSelectionHeroShareMax).nullish().describe('Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill\'s default).'),
+  "adSkill": zod.union([zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']).optional(),
+  "model": zod.enum(['cast', 'body_only', 'none']).optional().describe('cast = story characters wear it; body_only = faceless neck\/ear\/hand\/wrist crops; none = product only, no people.')
+}),zod.null()]).optional().describe('Product hero only; category preset such as jewellery. Null or omitted = general product ad.')
 }).optional().describe('Brand Kit products & services to promote. Omit on an update to keep the current selection; send an empty assetIds list to clear it.\n'),
   "promoOverlays": zod.union([zod.object({
   "version": zod.number().optional(),
@@ -25349,6 +25504,11 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "products": zod.union([zod.object({
   "version": zod.number(),
   "heroShare": zod.number().optional(),
+  "adSkill": zod.object({
+  "id": zod.enum(['jewellery']),
+  "look": zod.enum(['bridal', 'festive', 'everyday', 'minimal']),
+  "model": zod.enum(['cast', 'body_only', 'none'])
+}).optional(),
   "promotion": zod.enum(['hero', 'featured', 'subtle']),
   "items": zod.array(zod.object({
   "id": zod.string(),

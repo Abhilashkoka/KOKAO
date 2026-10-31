@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryAdSkillInput } from './guidedStoryAdSkillInput';
 import type { GuidedStoryProductSelectionInputPromotion } from './guidedStoryProductSelectionInputPromotion';
 
 /**
@@ -18,10 +19,12 @@ export interface GuidedStoryProductSelectionInput {
      */
   assetIds: number[];
   /**
-     * Product hero only; share of the runtime with the product on screen (default 0.7).
+     * Product hero only; share of the runtime with the product on screen (default 0.7, or the ad skill's default).
      * @minimum 0.6
      * @maximum 0.8
      * @nullable
      */
   heroShare?: number | null;
+  /** Product hero only; category preset such as jewellery. Null or omitted = general product ad. */
+  adSkill?: GuidedStoryAdSkillInput | null;
 }

@@ -76,7 +76,15 @@ import {
   CharacterProvenanceRecovery,
   GuidedCharacterProvenanceWarning,
 } from "@/components/character-provenance";
-import { GuidedProductPicker, SceneProductToggles, type GuidedPromotion } from "@/components/brand-products";
+import {
+  GENERAL_AD_SKILL,
+  GuidedProductPicker,
+  SceneProductToggles,
+  adSkillFromDraft,
+  adSkillInput,
+  type GuidedAdSkill,
+  type GuidedPromotion,
+} from "@/components/brand-products";
 import { ProductScreenTimeMeter, SceneShotPicker } from "@/components/product-hero";
 import {
   BackdropUploadShortcuts,
@@ -337,6 +345,7 @@ export function GuidedStoryWorkflow({
   const [productAssetIds, setProductAssetIds] = useState<number[]>([]);
   const [promotion, setPromotion] = useState<GuidedPromotion>("hero");
   const [heroShare, setHeroShare] = useState(0.7);
+  const [adSkill, setAdSkill] = useState<GuidedAdSkill>(GENERAL_AD_SKILL);
   const [customTone, setCustomTone] = useState("");
   const [category, setCategory] = useState<GuidedStoryCategory | null>(null);
   const [uploads, setUploads] = useState<GuidedUploadDraft[]>([]);
@@ -622,6 +631,7 @@ export function GuidedStoryWorkflow({
     setProductAssetIds(draft.setup.products?.items.map((item) => item.assetId) ?? []);
     setPromotion(draft.setup.products?.promotion ?? "hero");
     setHeroShare(draft.setup.products?.heroShare ?? 0.7);
+    setAdSkill(adSkillFromDraft(draft.setup.products?.adSkill));
     setCustomTone(draft.setup.customTone ?? "");
     setCategory(draft.setup.category ?? null);
     setUploads(uploadDraftsFromDraft(draft));
@@ -662,6 +672,7 @@ export function GuidedStoryWorkflow({
     setProductAssetIds([]);
     setPromotion("hero");
     setHeroShare(0.7);
+    setAdSkill(GENERAL_AD_SKILL);
     setCustomTone("");
     setCategory(null);
     setUploads([]);
@@ -902,7 +913,7 @@ export function GuidedStoryWorkflow({
       productSelection: {
         promotion,
         assetIds: brandKitId === null ? [] : productAssetIds,
-        ...(promotion === "hero" ? { heroShare } : {}),
+        ...(promotion === "hero" ? { heroShare, adSkill: adSkillInput(adSkill) } : {}),
       },
       customTone: genre === "custom" ? customTone.trim() : null,
       category: category ?? undefined,
@@ -1186,7 +1197,7 @@ export function GuidedStoryWorkflow({
             <div><Label>Publishing platform</Label><Select value={platformId} onValueChange={setPlatformId}><SelectTrigger data-testid="select-guided-platform"><SelectValue placeholder="Choose a platform" /></SelectTrigger><SelectContent>{(platforms.data ?? []).map((item) => <SelectItem key={item.id} value={item.id}>{item.id.replaceAll("_", " ")}</SelectItem>)}</SelectContent></Select></div>
             <div><Label>Brand Kit and voice library (optional)</Label><Select value={brandKitId?.toString() ?? ""} onValueChange={(value) => { const next = Number(value); if (next !== brandKitId) setProductAssetIds([]); setBrandKitId(next); }}><SelectTrigger data-testid="select-guided-brand-kit"><SelectValue placeholder="No Brand Kit" /></SelectTrigger><SelectContent>{brandKits.map((kit) => <SelectItem key={kit.id} value={String(kit.id)}>{kit.name}</SelectItem>)}</SelectContent></Select></div>
           </div>
-          <GuidedProductPicker brandKitId={brandKitId} selected={productAssetIds} onSelectedChange={setProductAssetIds} promotion={promotion} onPromotionChange={setPromotion} heroShare={heroShare} onHeroShareChange={setHeroShare} disabled={mutationLocked} />
+          <GuidedProductPicker brandKitId={brandKitId} selected={productAssetIds} onSelectedChange={setProductAssetIds} promotion={promotion} onPromotionChange={setPromotion} heroShare={heroShare} onHeroShareChange={setHeroShare} adSkill={adSkill} onAdSkillChange={setAdSkill} disabled={mutationLocked} />
           <GuidedStoryUploads rows={uploads} onChange={setUploads} disabled={mutationLocked} hasBrandKit={brandKitId !== null} />
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
           {contract && <div ref={durationRef} className={runtimeGuidance ? "rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : undefined} data-testid="section-guided-duration"><Label>Duration</Label>{runtimeGuidance && <p className="mt-1 text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-runtime">{runtimeGuidance}</p>}<div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => { setDuration(value); setRuntimeGuidance(null); }} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
