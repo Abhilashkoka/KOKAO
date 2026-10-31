@@ -46,7 +46,7 @@ const rowKey = () => `promo-${++rowSeq}`;
 
 const POSITIONS: Array<{ value: Position; label: string }> = [
   { value: "top", label: "Top" },
-  { value: "middle", label: "Middle" },
+  { value: "middle", label: "Lower third" },
   { value: "bottom", label: "Bottom" },
 ];
 const TIMINGS: Array<{ value: Timing; label: string }> = [

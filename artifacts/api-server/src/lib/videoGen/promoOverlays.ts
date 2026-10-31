@@ -109,7 +109,10 @@ const PALETTE: Record<GuidedStoryTextOverlay["style"], { text: string; box: stri
   white: { text: "#1A1A1A", box: "#FFFFFF", boxAlpha: 0 },
 };
 
-const ALIGNMENT: Record<GuidedStoryTextOverlay["position"], number> = { top: 8, middle: 5, bottom: 2 };
+// "middle" is the lower third: bottom-anchored about a third of the way up,
+// so it sits below the presenter's face rather than across it.
+const ALIGNMENT: Record<GuidedStoryTextOverlay["position"], number> = { top: 8, middle: 2, bottom: 2 };
+const MARGIN_V: Record<GuidedStoryTextOverlay["position"], number> = { top: 0.11, middle: 0.31, bottom: 0.19 };
 
 function assTime(sec: number): string {
   const cs = Math.max(0, Math.round(sec * 100));
@@ -151,7 +154,7 @@ export function buildPromoTextAss(params: {
     const fontSize = Math.round(shortEdge * (isIndic(family) ? 0.062 : 0.08));
     const pad = Math.round(fontSize * 0.28);
     // Keep clear of platform UI: top bar, and the caption/buttons at the bottom.
-    const marginV = overlay.position === "top" ? Math.round(H * 0.11) : overlay.position === "bottom" ? Math.round(H * 0.24) : 0;
+    const marginV = Math.round(H * MARGIN_V[overlay.position]);
     const marginH = Math.round(W * 0.09);
     styles.push(
       [

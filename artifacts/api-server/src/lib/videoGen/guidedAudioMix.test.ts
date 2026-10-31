@@ -192,7 +192,7 @@ describe("presenter face bubble", () => {
     const filters = (corner: "bottom_right" | "top_left") => faceBubbleFilters({
       source: "s", under: "u", output: "o", width: 1080, height: 1920, corner, windows: [{ startSec: 0, endSec: 1 }],
     })[1]!;
-    expect(filters("bottom_right")).toMatch(/overlay=663:1168:/);
+    expect(filters("bottom_right")).toMatch(/overlay=663:822:/);
     expect(filters("top_left")).toMatch(/overlay=49:230:/);
   });
 });
