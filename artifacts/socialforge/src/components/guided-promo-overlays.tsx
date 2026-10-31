@@ -38,7 +38,7 @@ export interface PromoOverlaysValue {
 
 export const EMPTY_PROMO_OVERLAYS: PromoOverlaysValue = {
   textOverlays: [],
-  faceBubble: { enabled: false, corner: "bottom_right" },
+  faceBubble: { enabled: false, corner: "bottom_left" },
 };
 
 let rowSeq = 0;
@@ -61,8 +61,8 @@ const STYLES: Array<{ value: Style; label: string; swatch: string }> = [
   { value: "white", label: "White", swatch: "#FFFFFF" },
 ];
 const CORNERS: Array<{ value: Corner; label: string }> = [
+  { value: "bottom_left", label: "Bottom left (recommended)" },
   { value: "bottom_right", label: "Bottom right" },
-  { value: "bottom_left", label: "Bottom left" },
   { value: "top_right", label: "Top right" },
   { value: "top_left", label: "Top left" },
 ];
@@ -87,7 +87,7 @@ export function promoOverlaysFromDraft(draft: GuidedStoryDraft): PromoOverlaysVa
     })),
     faceBubble: {
       enabled: saved.faceBubble?.enabled === true,
-      corner: (saved.faceBubble?.corner as Corner | undefined) ?? "bottom_right",
+      corner: (saved.faceBubble?.corner as Corner | undefined) ?? "bottom_left",
     },
   };
 }

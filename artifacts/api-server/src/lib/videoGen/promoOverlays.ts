@@ -66,7 +66,7 @@ export function normalizePromoOverlays(
         enabled: true,
         corner: CORNERS.includes(bubble.corner as never)
           ? (bubble.corner as NonNullable<GuidedStoryPromoOverlays["faceBubble"]>["corner"])
-          : "bottom_right",
+          : "bottom_left",
       };
     }
   }
