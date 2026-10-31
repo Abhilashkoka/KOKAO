@@ -65,6 +65,59 @@ export async function renderWatermarkPill(
 }
 
 /**
+ * Vertical video watermark: "Made with KOKAO.in" reading bottom-to-top,
+ * white at ~60% with a soft blurred shadow so it stays legible on both
+ * light and dark scenes. No pill. Placed on the LEFT edge, vertically
+ * centred — the right edge (like/comment/share) and bottom (caption) of a
+ * Reel are covered by the platform UI.
+ */
+function buildVerticalOverlaySvg(
+  frameWidth: number,
+  frameHeight: number,
+): { svg: Buffer; width: number; height: number } {
+  const shortEdge = Math.min(frameWidth, frameHeight);
+  const fontSize = Math.max(16, Math.min(44, Math.round(shortEdge * 0.032)));
+  const blur = Math.max(2, Math.round(fontSize * 0.12));
+  const textLength = Math.ceil(WATERMARK_TEXT.length * fontSize * 0.6);
+  // Rotated canvas: text length runs vertically; room for shadow spread.
+  const width = Math.round(fontSize * 1.8);
+  const height = textLength + fontSize;
+  const cx = width / 2;
+  const cy = height / 2;
+  const text = escapeXml(WATERMARK_TEXT);
+  const common = `text-anchor="middle" dy="0.35em" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="700" letter-spacing="${(fontSize * 0.06).toFixed(1)}"`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  <defs><filter id="s" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${blur}"/></filter></defs>
+  <g transform="translate(${cx},${cy}) rotate(-90)">
+    <text ${common} y="${Math.round(fontSize * 0.06)}" fill="black" fill-opacity="0.45" filter="url(#s)">${text}</text>
+    <text ${common} fill="white" fill-opacity="0.6">${text}</text>
+  </g>
+</svg>`;
+  return { svg: Buffer.from(svg), width, height };
+}
+
+/**
+ * Render the vertical video watermark as a PNG for the given frame size.
+ * Returns null when it would not fit or rendering fails.
+ */
+export async function renderVerticalWatermark(
+  frameWidth: number,
+  frameHeight: number,
+): Promise<{ png: Buffer; width: number; height: number; margin: number } | null> {
+  try {
+    const overlay = buildVerticalOverlaySvg(frameWidth, frameHeight);
+    const margin = Math.max(6, Math.round(Math.min(frameWidth, frameHeight) * 0.015));
+    if (overlay.width + margin > frameWidth || overlay.height + margin * 2 > frameHeight) {
+      return null;
+    }
+    const png = await sharp(overlay.svg).png().toBuffer();
+    return { png, width: overlay.width, height: overlay.height, margin };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Stamp the watermark pill in the bottom-right corner of a PNG/JPEG buffer.
  * Output is always PNG (matches how generated images are stored).
  */

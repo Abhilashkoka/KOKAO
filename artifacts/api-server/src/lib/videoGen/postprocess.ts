@@ -7,15 +7,16 @@ import { runFfmpeg, probeDurationSec } from "./slideshow";
 import { probeHeight } from "./lipSyncSource";
 import { ASPECT_DIMENSIONS, frameFor, VideoGenProviderError, type VideoAspect } from "./types";
 import { RESOLUTION_SHORT_EDGE, type VideoResolution } from "./modelCatalog";
-import { renderWatermarkPill } from "../watermark";
+import { renderVerticalWatermark } from "../watermark";
 import { EDITORIAL_VIDEO_FILTER } from "../cover/grade";
 import { isFeatureEnabled } from "../featureFlags";
 import { logger } from "../logger";
 import sharp from "sharp";
 
 /**
- * Stamp the "Made with KOKAO.in" pill in the bottom-right corner of a
- * finished video (plans with the watermark switch on). Audio is copied
+ * Stamp the vertical, semi-transparent "Made with KOKAO.in" mark on the
+ * left edge (vertically centred) of a finished video (plans with the
+ * watermark switch on). Audio is copied
  * untouched. Fail-soft: any error returns the ORIGINAL buffer — a watermark
  * hiccup must never fail a render that already cost money.
  */
@@ -24,7 +25,7 @@ export async function applyAppWatermarkToVideo(
   aspectRatio: VideoAspect,
 ): Promise<Buffer> {
   const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
-  const pill = await renderWatermarkPill(width, height);
+  const pill = await renderVerticalWatermark(width, height);
   if (!pill) return video;
   const dir = await mkdtemp(join(tmpdir(), "kokao-watermark-"));
   try {
@@ -38,7 +39,7 @@ export async function applyAppWatermarkToVideo(
         "-i",
         "wm.png",
         "-filter_complex",
-        `[0:v][1:v]overlay=W-w-${pill.margin}:H-h-${pill.margin}[vout]`,
+        `[0:v][1:v]overlay=${pill.margin}:(H-h)/2[vout]`,
         "-map",
         "[vout]",
         "-map",
