@@ -248,9 +248,9 @@ export function faceBubbleFilters(params: {
   const right = params.corner.endsWith("right");
   const top = params.corner.startsWith("top");
   const x = right ? params.width - size - margin : margin;
-  // Clear of the platform's top bar; bottom corners end above the lower-third
-  // text band so the bubble never sits on the on-screen offer line.
-  const y = top ? Math.round(params.height * 0.12) : Math.round(params.height * 0.62) - size;
+  // Clear of the platform's top bar; bottom corners start just below the
+  // lower-third text band so the bubble never sits on the offer line.
+  const y = top ? Math.round(params.height * 0.12) : Math.round(params.height * 0.71);
   const ring = Math.max(3, Math.round(size * 0.025));
   const inside = `lte(hypot(X-W/2,Y-H/2),W/2)`;
   const onRing = `gt(hypot(X-W/2,Y-H/2),W/2-${ring})`;
