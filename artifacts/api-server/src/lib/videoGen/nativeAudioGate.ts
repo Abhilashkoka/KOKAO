@@ -23,6 +23,14 @@ export class NativeAudioQualityError extends Error {
   }
 }
 
+const INDIC_LOCALES: readonly string[] = ["te", "ta", "hi"];
+const PHONETIC_MATCH_MIN = 0.75;
+// ASR often labels Telugu as Tamil (or Hindi) and writes the transcript in that
+// script, which costs the phonetic comparison a few points of transliteration
+// noise: a correct Telugu render scored 0.739 under a Tamil label. Unrelated
+// speech scores ~0.42-0.44 and half-wrong speech ~0.56, so 0.7 keeps a margin.
+const INDIC_SIBLING_PHONETIC_MATCH_MIN = 0.7;
+
 const SCRIPT_PATTERNS: Array<[GuidedStoryLocale, RegExp]> = [
   ["te", /\p{Script=Telugu}/gu],
   ["ta", /\p{Script=Tamil}/gu],
@@ -213,11 +221,19 @@ export function assessNativeAudioTranscript(args: {
   const providerLocale = analysis.providerDetectedLocale;
   const strongExpectedScript =
     analysis.transcriptDetectedLocale === args.expectedLocale &&
-    ["te", "ta", "hi"].includes(args.expectedLocale);
+    INDIC_LOCALES.includes(args.expectedLocale);
+  const siblingIndicLabel = [providerLocale, analysis.transcriptDetectedLocale]
+    .some((locale) =>
+      locale != null &&
+      locale !== args.expectedLocale &&
+      INDIC_LOCALES.includes(locale)
+    );
   const strongExpectedPhonetics =
     Boolean(args.expectedPhoneticDialogue?.trim()) &&
-    ["te", "ta", "hi"].includes(args.expectedLocale) &&
-    analysis.dialogueSimilarity >= 0.75;
+    INDIC_LOCALES.includes(args.expectedLocale) &&
+    analysis.dialogueSimilarity >= (
+      siblingIndicLabel ? INDIC_SIBLING_PHONETIC_MATCH_MIN : PHONETIC_MATCH_MIN
+    );
   // One- or two-word clips are too ambiguous for a provider language label to
   // justify a terminal wrong-language verdict ("no", names, and numbers often
   // straddle languages). A strong Telugu/Tamil/Devanagari transcript is also
@@ -247,7 +263,7 @@ export function assessNativeAudioTranscript(args: {
   }
   // Script detection can be uncertain for names, numbers, and very short lines.
   // In that case exact-dialogue similarity remains the safer independent signal.
-  if (analysis.dialogueSimilarity < 0.75) {
+  if (!strongExpectedPhonetics && analysis.dialogueSimilarity < PHONETIC_MATCH_MIN) {
     return { outcome: "dialogue_drift", detectedLocale };
   }
   return { outcome: "pass", detectedLocale };

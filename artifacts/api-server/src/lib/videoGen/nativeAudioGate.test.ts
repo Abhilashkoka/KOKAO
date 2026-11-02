@@ -129,6 +129,63 @@ describe("native Guided audio assessment", () => {
     })).toEqual({ outcome: "wrong_language", detectedLocale: "ta" });
   });
 
+  describe("Telugu transcribed in Tamil script under a Tamil label", () => {
+    const expectedDialogue =
+      "అదే వీధి. అవే టపాసులు. మరి నా షాప్ మాత్రమే ఎందుకు నిండిపోయింది?";
+    const expectedPhoneticDialogue =
+      "Ade veedhi. Ave tapasulu. Mari naa shop maatrame enduku nindipoyindi?";
+    // Mirrors a real false failure: correct Telugu audio, ASR said Tamil, 0.739.
+    const transcript =
+      "அதே வீதி அவே டபாசு மரி நா ஷாப் மாத்ரமே எந்துகு நிண்டிபோயிந்தி";
+
+    it("passes when the phonetics still match the frozen script", () => {
+      const similarity = nativeAudioTranscriptDiagnostics({
+        expectedDialogue,
+        expectedPhoneticDialogue,
+        transcript,
+        providerDetectedLanguage: "ta",
+      }).dialogueSimilarity;
+      expect(similarity).toBeGreaterThanOrEqual(0.7);
+      expect(similarity).toBeLessThan(0.75);
+      expect(assessNativeAudioTranscript({
+        expectedLocale: "te",
+        expectedDialogue,
+        expectedPhoneticDialogue,
+        transcript,
+        providerDetectedLanguage: "ta",
+      })).toEqual({ outcome: "pass", detectedLocale: "te" });
+    });
+
+    it("still rejects half-wrong speech", () => {
+      expect(assessNativeAudioTranscript({
+        expectedLocale: "te",
+        expectedDialogue: "మన చిన్న తార కోసం ఎంత దూరమైనా వెళ్తాం",
+        expectedPhoneticDialogue:
+          "Mana chinna tara kosam enta duramaina veltam.",
+        transcript: "மன சின்ன தார வேறு விஷயத்தைப் பற்றி",
+        providerDetectedLanguage: "ta",
+      })).toEqual({ outcome: "wrong_language", detectedLocale: "ta" });
+    });
+
+    it("keeps the stricter 0.75 bar when ASR agrees it is Telugu", () => {
+      const changedDialogue =
+        "Ade veedi ave tapasulu ippudu manchi shop ekkada undi";
+      expect(nativeAudioTranscriptDiagnostics({
+        expectedDialogue,
+        expectedPhoneticDialogue,
+        transcript: changedDialogue,
+        providerDetectedLanguage: "te",
+      }).dialogueSimilarity).toBeLessThan(0.75);
+      expect(assessNativeAudioTranscript({
+        expectedLocale: "te",
+        expectedDialogue,
+        expectedPhoneticDialogue,
+        transcript: changedDialogue,
+        providerDetectedLanguage: "te",
+      }).outcome).toBe("dialogue_drift");
+    });
+  });
+
   it("does not accept reordered Telugu on phonetic similarity alone", () => {
     expect(assessNativeAudioTranscript({
       expectedLocale: "te",
