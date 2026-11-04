@@ -5,12 +5,14 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { GuidedStoryAdSkill } from './guidedStoryAdSkill';
 import type { GuidedStoryProductChoicesPromotion } from './guidedStoryProductChoicesPromotion';
 import type { GuidedStoryProductReference } from './guidedStoryProductReference';
 
 export interface GuidedStoryProductChoices {
   version: 1;
   heroShare?: number;
+  adSkill?: GuidedStoryAdSkill;
   promotion: GuidedStoryProductChoicesPromotion;
   items: GuidedStoryProductReference[];
 }

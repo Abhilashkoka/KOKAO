@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { applyMadeWithWatermark, renderWatermarkPill } from "./watermark";
+import { applyMadeWithWatermark, renderVerticalWatermark, renderWatermarkPill } from "./watermark";
 
 async function solidPng(width: number, height: number): Promise<Buffer> {
   return sharp({
@@ -60,5 +60,26 @@ describe("renderWatermarkPill", () => {
 
   it("returns null when the pill would not fit the frame", async () => {
     expect(await renderWatermarkPill(40, 40)).toBeNull();
+  });
+});
+
+describe("renderVerticalWatermark", () => {
+  it("renders a tall, narrow PNG that fits a 9:16 frame", async () => {
+    const mark = await renderVerticalWatermark(1080, 1920);
+    expect(mark).not.toBeNull();
+    const meta = await sharp(mark!.png).metadata();
+    expect(meta.format).toBe("png");
+    expect(meta.width).toBe(mark!.width);
+    expect(meta.height).toBe(mark!.height);
+    expect(mark!.height).toBeGreaterThan(mark!.width);
+    expect(mark!.height + mark!.margin * 2).toBeLessThanOrEqual(1920);
+  });
+
+  it("fits a landscape 16:9 frame too", async () => {
+    expect(await renderVerticalWatermark(1920, 1080)).not.toBeNull();
+  });
+
+  it("returns null when the mark would not fit the frame", async () => {
+    expect(await renderVerticalWatermark(40, 40)).toBeNull();
   });
 });

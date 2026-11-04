@@ -1,4 +1,5 @@
 import type {
+  GuidedStoryAdSkill,
   GuidedStoryShot,
   GuidedStoryCastSnapshot,
   GuidedStoryScript,
@@ -6,6 +7,7 @@ import type {
 } from "@workspace/db";
 import { VideoGenProviderError } from "./types";
 import { productHeroShotClause } from "./productHero";
+import { adSkillCastLockLine, adSkillFidelityLine, adSkillKeepText } from "./productSkills";
 
 type PlatformFraming = { aspectRatio: string; safeArea: string };
 type ScriptScene = GuidedStoryScript["scenes"][number];
@@ -42,7 +44,7 @@ export interface GuidedSceneVisualInput {
    */
   productReferenceLabels?: readonly string[];
   /** Product-hero story: the product is the subject; shot plan for this scene. */
-  productHero?: { shot: GuidedStoryShot | null };
+  productHero?: { shot: GuidedStoryShot | null; skill?: GuidedStoryAdSkill | null };
   /** Scene-level user uploads (props, style, opening/closing shot, motion). */
   references?: ReadonlyArray<{
     handle: string;
@@ -208,10 +210,12 @@ export function productClause(input: GuidedSceneVisualInput): string {
     photoIndex += 1;
     const look = productNote(product.aiDescription) || productNote(product.description, 200);
     const subject = product.kind === "service" ? "service setting" : "product";
+    // A skill without labels (jewellery) keeps its own details instead.
+    const keep = product.kind === "product" ? adSkillKeepText(input.productHero?.skill) : null;
     parts.push(
       label
-        ? `Show the brand ${subject} "${product.name}" exactly as in ${label}${look ? ` (${look})` : ""}; keep its shape, colours, packaging and any label text unchanged and legible.`
-        : `Show the brand ${subject} "${product.name}" clearly in the shot${look ? `: ${look}` : "."} Keep its shape, colours and label text consistent and legible.`,
+        ? `Show the brand ${subject} "${product.name}" exactly as in ${label}${look ? ` (${look})` : ""}; ${keep ?? "keep its shape, colours, packaging and any label text unchanged and legible"}.`
+        : `Show the brand ${subject} "${product.name}" clearly in the shot${look ? `: ${look}` : "."} ${keep ? `${keep[0]!.toUpperCase()}${keep.slice(1)}` : "Keep its shape, colours and label text consistent and legible"}.`,
     );
   }
   if (reserveCard) {
@@ -272,7 +276,13 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
   const blocks = [
     // Product hero: the framing comes first, so the product leads the shot.
     heroProducts.length
-      ? productHeroShotClause({ shot: input.productHero!.shot, productNames: heroProducts, castCount: input.sceneCast.length })
+      ? productHeroShotClause({
+          shot: input.productHero!.shot,
+          productNames: heroProducts,
+          castCount: input.sceneCast.length,
+          skill: input.productHero!.skill ?? null,
+          products: (input.products ?? []).filter((product) => product.displayMode === "in_scene"),
+        })
       : "",
     stripStoryboardDump(input.scriptScene.visualDirection),
     input.sceneCast.map((member, i) => roleClause(member, labels.slice(i * 2, i * 2 + 2))).join(" "),
@@ -285,10 +295,12 @@ export function guidedSceneVisualPrompt(input: GuidedSceneVisualInput): string {
     input.logoPath ? "Leave clear space in the lower third for a logo overlay." : "",
     // Last, so the final thing read is what must not change.
     input.sceneCast.length
-      ? "Every face, hairstyle, build and garment stays identical to the references for the entire shot."
+      ? (heroProducts.length ? adSkillCastLockLine(input.productHero!.skill) : null) ??
+        "Every face, hairstyle, build and garment stays identical to the references for the entire shot."
       : "",
     heroProducts.length
-      ? "The product's shape, colours, packaging and label stay identical to its reference photo for the entire shot."
+      ? adSkillFidelityLine(input.productHero!.skill) ??
+        "The product's shape, colours, packaging and label stay identical to its reference photo for the entire shot."
       : "",
     `Compose for ${input.platform.aspectRatio}. ${input.platform.safeArea}`,
   ];

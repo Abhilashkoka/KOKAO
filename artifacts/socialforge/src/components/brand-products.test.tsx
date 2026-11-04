@@ -14,7 +14,7 @@ vi.mock("@workspace/api-client-react", async () => {
   });
 });
 
-import { GuidedProductPicker, SceneProductToggles } from "./brand-products";
+import { GuidedProductPicker, SceneProductToggles, adSkillFromDraft, adSkillInput } from "./brand-products";
 
 function wrap(node: ReactNode) {
   return <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>;
@@ -71,6 +71,42 @@ describe("GuidedProductPicker", () => {
     ));
     fireEvent.click(screen.getByTestId("toggle-guided-promotion-subtle"));
     expect(onPromotionChange).toHaveBeenCalledWith("subtle");
+  });
+
+  it("offers the jewellery ad skill on Product hero and raises screen time to 80%", () => {
+    const onAdSkillChange = vi.fn();
+    const onHeroShareChange = vi.fn();
+    const { rerender } = render(wrap(
+      <GuidedProductPicker brandKitId={1} selected={[1]} onSelectedChange={() => {}} promotion="hero" onPromotionChange={() => {}}
+        heroShare={0.7} onHeroShareChange={onHeroShareChange} onAdSkillChange={onAdSkillChange} />,
+    ));
+    expect(screen.queryByTestId("toggle-guided-ad-skill-look")).toBeNull();
+    fireEvent.click(screen.getByTestId("toggle-guided-ad-skill-jewellery"));
+    expect(onAdSkillChange).toHaveBeenLastCalledWith({ id: "jewellery", look: "everyday", model: "cast" });
+    expect(onHeroShareChange).toHaveBeenLastCalledWith(0.8);
+
+    rerender(wrap(
+      <GuidedProductPicker brandKitId={1} selected={[1]} onSelectedChange={() => {}} promotion="hero" onPromotionChange={() => {}}
+        heroShare={0.8} onHeroShareChange={onHeroShareChange} adSkill={{ id: "jewellery", look: "everyday", model: "cast" }} onAdSkillChange={onAdSkillChange} />,
+    ));
+    fireEvent.click(screen.getByTestId("toggle-guided-ad-skill-look-bridal"));
+    expect(onAdSkillChange).toHaveBeenLastCalledWith({ id: "jewellery", look: "bridal", model: "cast" });
+    fireEvent.click(screen.getByTestId("toggle-guided-ad-skill-model-body_only"));
+    expect(onAdSkillChange).toHaveBeenLastCalledWith({ id: "jewellery", look: "everyday", model: "body_only" });
+  });
+
+  it("hides the ad skill outside Product hero", () => {
+    render(wrap(
+      <GuidedProductPicker brandKitId={1} selected={[1]} onSelectedChange={() => {}} promotion="featured" onPromotionChange={() => {}} onAdSkillChange={() => {}} />,
+    ));
+    expect(screen.queryByTestId("section-guided-ad-skill")).toBeNull();
+  });
+
+  it("round-trips the skill payload", () => {
+    expect(adSkillInput({ id: "general", look: "everyday", model: "cast" })).toBeNull();
+    expect(adSkillInput({ id: "jewellery", look: "minimal", model: "none" })).toEqual({ id: "jewellery", look: "minimal", model: "none" });
+    expect(adSkillFromDraft({ id: "jewellery", look: "festive", model: "cast" }).look).toBe("festive");
+    expect(adSkillFromDraft(undefined).id).toBe("general");
   });
 });
 

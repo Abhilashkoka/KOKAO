@@ -115,6 +115,29 @@ export interface GuidedStoryRequirements {
   bannedWords: string[];
 }
 
+/** One line of on-screen text burned into the finished video (hook, offer, shop name). */
+export interface GuidedStoryTextOverlay {
+  text: string;
+  position: "top" | "middle" | "bottom";
+  /** start = first 3 seconds, end = last 4 seconds, whole = entire video. */
+  timing: "start" | "whole" | "end";
+  style: "red" | "yellow" | "black" | "white";
+}
+
+/**
+ * Optional shop-promo finishing, applied locally after rendering. Text never
+ * reaches a provider; the face bubble also changes how the script treats
+ * footage scenes (the presenter speaks on camera underneath the upload).
+ */
+export interface GuidedStoryPromoOverlays {
+  version: 1;
+  textOverlays: GuidedStoryTextOverlay[];
+  faceBubble: {
+    enabled: boolean;
+    corner: "bottom_right" | "bottom_left" | "top_right" | "top_left";
+  } | null;
+}
+
 /** Where an audio reference plays in the finished video. Local mixing only. */
 export interface GuidedStoryAudioPlacement {
   referenceId: string;
@@ -217,6 +240,18 @@ export interface GuidedStoryProductChoices {
   items: GuidedStoryProductReference[];
   /** "hero" only: target share of runtime with the product on screen (0.6–0.8). */
   heroShare?: number;
+  /** "hero" only: category preset (shot grammar, look, who wears it). Absent = general. */
+  adSkill?: GuidedStoryAdSkill;
+}
+
+export type GuidedStoryAdSkillLook = "bridal" | "festive" | "everyday" | "minimal";
+/** cast = story characters wear it; body_only = faceless body crops; none = product only. */
+export type GuidedStoryAdSkillModel = "cast" | "body_only" | "none";
+
+export interface GuidedStoryAdSkill {
+  id: "jewellery";
+  look: GuidedStoryAdSkillLook;
+  model: GuidedStoryAdSkillModel;
 }
 
 export interface GuidedStoryScript {
@@ -570,6 +605,8 @@ export interface GuidedStoryDraftState {
     /** User uploads addressable as @handle. Absent on legacy drafts. */
     references?: GuidedStoryReferenceLibrary | null;
     requirements?: GuidedStoryRequirements | null;
+    /** Optional on-screen text and presenter face bubble. Absent on legacy drafts. */
+    promoOverlays?: GuidedStoryPromoOverlays | null;
   } | null;
   /**
    * New drafts freeze the platform image choice so review assets and retries

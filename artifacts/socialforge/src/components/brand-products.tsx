@@ -34,6 +34,27 @@ export const MAX_GUIDED_STORY_PRODUCTS = 4;
 
 type Kind = "product" | "service";
 export type GuidedPromotion = "hero" | "featured" | "subtle";
+
+/** Product hero category presets. "general" stores nothing. */
+export type GuidedAdSkillId = "general" | "jewellery";
+export type GuidedAdSkillLook = "bridal" | "festive" | "everyday" | "minimal";
+export type GuidedAdSkillModel = "cast" | "body_only" | "none";
+export type GuidedAdSkill = { id: GuidedAdSkillId; look: GuidedAdSkillLook; model: GuidedAdSkillModel };
+export const GENERAL_AD_SKILL: GuidedAdSkill = { id: "general", look: "everyday", model: "cast" };
+/** Screen time each skill starts at when picked. */
+const AD_SKILL_HERO_SHARE: Record<GuidedAdSkillId, number> = { general: 0.7, jewellery: 0.8 };
+
+/** The selection payload for a skill: null for a general ad. */
+export function adSkillInput(skill: GuidedAdSkill): { id: "jewellery"; look: GuidedAdSkillLook; model: GuidedAdSkillModel } | null {
+  return skill.id === "general" ? null : { id: skill.id, look: skill.look, model: skill.model };
+}
+
+/** Back from a saved draft's frozen products. */
+export function adSkillFromDraft(saved: { id: string; look: string; model: string } | null | undefined): GuidedAdSkill {
+  return saved?.id === "jewellery"
+    ? { id: "jewellery", look: saved.look as GuidedAdSkillLook, model: saved.model as GuidedAdSkillModel }
+    : GENERAL_AD_SKILL;
+}
 export const MAX_PRODUCT_PHOTOS = 5;
 const ANGLE_LABELS: Array<[Exclude<BrandProductAngleView, "front">, string]> = [
   ["back", "Back"],
@@ -479,6 +500,8 @@ export function GuidedProductPicker({
   onPromotionChange,
   heroShare = 0.7,
   onHeroShareChange,
+  adSkill = GENERAL_AD_SKILL,
+  onAdSkillChange,
   disabled,
 }: {
   brandKitId: number | null;
@@ -488,8 +511,15 @@ export function GuidedProductPicker({
   onPromotionChange: (next: GuidedPromotion) => void;
   heroShare?: number;
   onHeroShareChange?: (next: number) => void;
+  adSkill?: GuidedAdSkill;
+  onAdSkillChange?: (next: GuidedAdSkill) => void;
   disabled?: boolean;
 }) {
+  const pickSkill = (id: GuidedAdSkillId) => {
+    if (!onAdSkillChange || id === adSkill.id) return;
+    onAdSkillChange({ ...adSkill, id });
+    onHeroShareChange?.(AD_SKILL_HERO_SHARE[id]);
+  };
   const products = useListBrandProducts(brandKitId ?? 0, {
     query: { enabled: brandKitId !== null, queryKey: getListBrandProductsQueryKey(brandKitId ?? 0) },
   });
@@ -534,6 +564,47 @@ export function GuidedProductPicker({
               ? "Featured: a hero moment for the product and a short call to action at the end."
               : "Subtle: shown naturally in one or two scenes, no sales pitch."}
         </p>
+      )}
+      {selected.length > 0 && promotion === "hero" && onAdSkillChange && (
+        <div className="space-y-2 rounded-md bg-muted/40 p-2.5" data-testid="section-guided-ad-skill">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium">Ad skill:</span>
+            <SegmentedChoice
+              value={adSkill.id}
+              options={[["general", "General product"], ["jewellery", "💎 Jewellery & Accessories"]] as Array<[GuidedAdSkillId, string]>}
+              onChange={pickSkill}
+              disabled={disabled}
+              testId="toggle-guided-ad-skill"
+            />
+          </div>
+          {adSkill.id === "jewellery" && (
+            <>
+              <p className="text-xs text-muted-foreground" data-testid="text-guided-ad-skill-help">
+                Macro sparkle, 360° turns, light sweeps and slow pacing. Upload a <b>detail</b> close-up and an <b>in use</b> (worn) photo for the best result.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium">Look:</span>
+                <SegmentedChoice
+                  value={adSkill.look}
+                  options={[["bridal", "Bridal"], ["festive", "Festive"], ["everyday", "Everyday luxe"], ["minimal", "Minimal"]] as Array<[GuidedAdSkillLook, string]>}
+                  onChange={(look: GuidedAdSkillLook) => onAdSkillChange({ ...adSkill, look })}
+                  disabled={disabled}
+                  testId="toggle-guided-ad-skill-look"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium">Who wears it:</span>
+                <SegmentedChoice
+                  value={adSkill.model}
+                  options={[["cast", "Your characters"], ["body_only", "Hands & neck only"], ["none", "No model"]] as Array<[GuidedAdSkillModel, string]>}
+                  onChange={(model: GuidedAdSkillModel) => onAdSkillChange({ ...adSkill, model })}
+                  disabled={disabled}
+                  testId="toggle-guided-ad-skill-model"
+                />
+              </div>
+            </>
+          )}
+        </div>
       )}
       {selected.length > 0 && promotion === "hero" && onHeroShareChange && (
         <div className="flex flex-wrap items-center gap-2" data-testid="section-guided-hero-share">
