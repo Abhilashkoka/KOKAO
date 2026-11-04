@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GuidedStoryProductChoices, GuidedStoryScript } from "@workspace/db";
-import { activeAdSkill, adSkillDefaultHeroShare, adSkillScriptRules, normalizeAdSkill } from "./productSkills";
+import { activeAdSkill, adSkillDefaultHeroShare, adSkillScriptRules, jewelleryCategory, normalizeAdSkill } from "./productSkills";
 import { chooseProductImage, productHeroScriptRules, productHeroShotClause, sanitizeShots } from "./productHero";
 import { guidedSceneVisualPrompt } from "./guidedScenePrompt";
 
@@ -122,5 +122,72 @@ describe("who wears it", () => {
     const out = sanitizeShots(scriptWithDialogue(), choices("none"));
     expect(out.scenes.every((scene) => scene.roleIds.length === 0)).toBe(true);
     expect(out.scenes.flatMap((scene) => scene.lines).every((line) => line.kind === "narration")).toBe(true);
+  });
+});
+
+describe("jewellery category", () => {
+  it("reads the category from the name, then the descriptions", () => {
+    expect(jewelleryCategory({ name: "Temple Necklace" })).toBe("necklace");
+    expect(jewelleryCategory({ name: "Gold Jhumkas" })).toBe("earrings");
+    expect(jewelleryCategory({ name: "Diamond Nose Ring" })).toBe("nose");
+    expect(jewelleryCategory({ name: "Silver Toe Rings" })).toBe("anklet");
+    expect(jewelleryCategory({ name: "Kundan Necklace Set" })).toBe("set");
+    expect(jewelleryCategory({ name: "Gold Kada" })).toBe("bangles");
+    expect(jewelleryCategory({ name: "Solitaire", description: "18k engagement ring" })).toBe("ring");
+    expect(jewelleryCategory({ name: "Lakshmi piece", description: "", aiDescription: "Gold vaddanam with ruby stones" })).toBe("waist");
+    expect(jewelleryCategory({ name: "Gift box" })).toBeNull();
+  });
+});
+
+describe("jewellery prompt v2", () => {
+  const jewel = { id: "jewellery" as const, look: "everyday" as const, model: "cast" as const };
+  const worn = { type: "in_use" as const, camera: "push_in" as const, lighting: "window_light" as const, angle: null };
+
+  it("frames worn shots and styling for the piece's category", () => {
+    const clause = productHeroShotClause({ shot: worn, productNames: ["Gold Jhumkas"], castCount: 1, skill: jewel, products: [{ name: "Gold Jhumkas" }] });
+    expect(clause).toContain("earrings is worn on the ear");
+    expect(clause).toContain("hair tucked behind the ear");
+  });
+
+  it("puts each piece's category and styling in the script brief", () => {
+    const rules = adSkillScriptRules(choices("cast")).join("\n");
+    expect(rules).toContain('"Temple Necklace" is a necklace');
+    expect(rules).toContain("open or boat neckline");
+    const none = adSkillScriptRules(choices("none")).join("\n");
+    expect(none).toContain("velvet neck bust");
+    expect(none).not.toContain("neckline");
+  });
+
+  it("lights by look instead of forcing dark backgrounds", () => {
+    const clause = productHeroShotClause({ shot: worn, productNames: ["Ring"], castCount: 1, skill: jewel });
+    expect(clause).not.toContain("deep rich blacks");
+    expect(clause).toContain("soft diffused daylight");
+  });
+
+  it("asks for natural motion and photoreal metal", () => {
+    const clause = productHeroShotClause({ shot: worn, productNames: ["Ring"], castCount: 1, skill: jewel });
+    expect(clause).toContain("Never a frozen mannequin pose");
+    expect(clause).toContain("no CGI or plastic sheen");
+    const still = productHeroShotClause({ shot: worn, productNames: ["Ring"], castCount: 0, skill: { ...jewel, model: "none" } });
+    expect(still).toContain("Never a frozen still");
+    expect(still).not.toContain("mannequin");
+  });
+
+  it("drops the label wording and lets hair be tucked in jewellery scenes", () => {
+    const prompt = guidedSceneVisualPrompt({
+      scriptScene: { visualDirection: "Bride turns her head" },
+      sceneCast: [{ roleId: "r1", character: { name: "Bride", referenceImagePath: "/objects/1/uploads/c" }, outfit: { description: "a red silk saree", referenceImagePath: "/objects/1/uploads/o" } } as never],
+      backdrop: null,
+      backdropLabel: "default",
+      location: { mode: "auto" } as never,
+      logoPath: null,
+      platform: { aspectRatio: "9:16", safeArea: "Keep the centre clear." },
+      products: [{ name: "Gold Jhumkas", kind: "product", aiDescription: null, description: "gold", displayMode: "in_scene" }],
+      productHero: { shot: worn, skill: jewel },
+    });
+    expect(prompt).not.toMatch(/label text/);
+    expect(prompt).toContain("Keep its design, metal colour, stones and proportions unchanged");
+    expect(prompt).toContain("hair may only be tucked or pinned back");
+    expect(prompt).not.toContain("Every face, hairstyle, build and garment");
   });
 });
