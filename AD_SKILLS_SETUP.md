@@ -39,6 +39,18 @@ Ad skills are category presets that sit on top of **Product hero**. A skill chan
 
 **Fidelity rule:** the last line of each scene prompt locks the metal colour, motif, stone count, stone colours, setting and proportions.
 
+## Prompt v2 (branch `feat/jewellery-prompt-v2`)
+
+- **Category aware.** Each product is read as a necklace, earrings, nose ornament, maang tikka, ring, bangles, anklet, waist belt or full set. The name is read first, then the owner's description, then the AI photo description, using English and common Indian names (jhumka, kada, vaddanam, mookuthi and so on).
+  - The category sets how worn shots are framed, how the wearer is styled, and how the piece is displayed when nobody wears it.
+  - The AI photo description now starts with the category and lists the metal, stones, stone count, motif and setting.
+- **Wardrobe.** The script brief styles the wearer to show the piece: open neckline for a necklace, hair tucked for earrings, bare wrists for bangles. Approved outfits stay as they are; only drape, hair and framing change. The cast lock line allows hair to be tucked or a drape moved aside.
+- **Lighting by look.** The forced "deep rich blacks" is removed. Each look now sets its own light: Bridal gets a diya glow, Festive golden bokeh, Everyday diffused daylight, Minimal a muted key.
+- **Alive motion.** Every shot asks for natural micro-motion (breath, sway, fabric drift) and bans frozen mannequin poses. No-model shots use moving light and a turning stand instead.
+- **Photoreal guard.** Real metal grain and reflections, no CGI or plastic sheen, no bloom around the stones.
+- **No label wording.** The product clause asks to keep design, metal, stones and proportions unchanged, not packaging and label text.
+- **Existing products.** These need **Re-describe** in Brand Kit to get the richer description. Category detection already works from the name.
+
 ## Apply
 
 - **No database change.** The skill is stored in the existing draft JSON as `products.adSkill`.

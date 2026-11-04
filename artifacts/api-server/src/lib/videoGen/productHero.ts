@@ -16,6 +16,7 @@ import {
   adSkillMacroView,
   adSkillScriptRules,
   adSkillShotClause,
+  type AdSkillProductText,
 } from "./productSkills";
 
 /**
@@ -281,6 +282,8 @@ export function productHeroShotClause(params: {
   productNames: string[];
   castCount: number;
   skill?: GuidedStoryAdSkill | null;
+  /** The scene's products, so a skill can tell what kind of piece it is. */
+  products?: readonly AdSkillProductText[];
 }): string {
   if (!params.productNames.length) return "";
   const name = params.productNames.length === 1 ? `"${params.productNames[0]}"` : params.productNames.map((n) => `"${n}"`).join(" and ");
@@ -293,7 +296,7 @@ export function productHeroShotClause(params: {
     shot ? CAMERA_TEXT[shot.camera] : "",
     shot ? LIGHTING_TEXT[shot.lighting] : LIGHTING_TEXT.studio_key,
     shot?.angle && shot.angle !== "front" ? `Show the product's ${ANGLE_TEXT[shot.angle]}.` : "",
-    adSkillShotClause(params.skill, shot),
+    adSkillShotClause(params.skill, shot, params.products ?? []),
   ];
   // The skill's own people rule (body crops / nobody) replaces the generic one.
   if (params.skill && adSkillFacelessProduct(params.skill)) return parts.filter(Boolean).join(" ");
